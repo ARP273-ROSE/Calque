@@ -1,6 +1,6 @@
 # Calque — progression
 
-## État au 07/11/2026 — version 0.1.0 publiée (Release en cours de construction)
+## État au 07/11/2026 — version 0.1.0 publiée, Release vérifiée
 
 Dépôt public `ARP273-ROSE/Calque`, branche `main`, tag `v0.1.0`.
 
@@ -30,11 +30,11 @@ Dépôt public `ARP273-ROSE/Calque`, branche `main`, tag `v0.1.0`.
 ### PAS encore vérifié
 - Sur un vrai PC : élévation UAC, dock USB réel qui décroche pour de vrai, boutons « Agrandir C: »
   et « Réparer WinRE » (reagentc), démarrage réel sur le clone.
-- Paquets de la Release (installeur, tar.gz) : voir l'exécution `release.yml` du tag v0.1.0.
+- Installeur Windows jamais lancé sur un vrai PC (Release : 5 paquets + SHA256SUMS OK ; tar.gz Linux téléchargé : `--check`, `--version`, `--lister` OK).
 - macOS : paquet construit par le gabarit, mais aucun accès disque (lister() vide).
 
 ### Prochaines étapes
-1. Vérifier la Release v0.1.0 par l'API (fichiers, SHA256SUMS).
+1. (fait) Release v0.1.0 vérifiée.
 2. Premier essai réel (PC Windows, cible NVMe en dock USB) : `calque --lister` pour voir les secteurs,
    puis clonage avec « Ménager le boîtier USB ».
 3. Si le dock décroche à répétition : carte adaptateur PCIe → M.2, ou clonage sous Linux.
