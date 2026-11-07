@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="fond" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1D4E73"/>
+      <stop offset="100%" stop-color="#123651"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#fond)"/>
+  <g opacity="1.0">
+<rect x="62" y="104" width="250" height="118" rx="12" fill="#EAF2F7" stroke="#0E2233" stroke-width="5"/>
+<rect x="276" y="118" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="276" y="132" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="276" y="146" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="276" y="160" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="276" y="174" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="276" y="188" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="276" y="202" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="88" y="130" width="66" height="66" rx="6" fill="#0E2233"/>
+<rect x="174" y="130" width="80" height="66" rx="6" fill="#0E2233"/>
+<circle cx="76" cy="163" r="6" fill="none" stroke="#0E2233" stroke-width="3"/>
+</g>
+  <g opacity="0.62">
+<rect x="200" y="290" width="250" height="118" rx="12" fill="#EAF2F7" stroke="#0E2233" stroke-width="5" stroke-dasharray="14 9"/>
+<rect x="414" y="304" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="414" y="318" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="414" y="332" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="414" y="346" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="414" y="360" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="414" y="374" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="414" y="388" width="26" height="8" rx="2" fill="#0E2233"/>
+<rect x="226" y="316" width="66" height="66" rx="6" fill="#0E2233"/>
+<rect x="312" y="316" width="80" height="66" rx="6" fill="#0E2233"/>
+<circle cx="214" cy="349" r="6" fill="none" stroke="#0E2233" stroke-width="3"/>
+</g>
+  <path d="M190 246 C 190 300, 210 330, 252 336" fill="none" stroke="#E09A35" stroke-width="16" stroke-linecap="round"/>
+  <polygon points="244,304 290,340 238,366" fill="#E09A35"/>
+</svg>

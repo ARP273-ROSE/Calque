@@ -1,0 +1,79 @@
+% Préambule commun aux manuels de Calque (français et anglais).
+% Compilation : pdflatex manuel-fr.tex (deux fois), idem manuel-en.tex, depuis docs/src/.
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[a4paper,margin=2cm,headheight=24pt]{geometry}
+\usepackage{graphicx}
+\usepackage[table]{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage[nobottomtitles*]{titlesec}
+\usepackage{needspace}
+\usepackage{fancyhdr}
+\usepackage{fontawesome5}
+\usepackage{etoolbox}
+\DeclareUnicodeCharacter{2192}{\ensuremath{\rightarrow}}
+\DeclareUnicodeCharacter{2191}{\ensuremath{\uparrow}}
+\DeclareUnicodeCharacter{2193}{\ensuremath{\downarrow}}
+\DeclareUnicodeCharacter{25B2}{\ensuremath{\blacktriangle}}
+\DeclareUnicodeCharacter{25BC}{\ensuremath{\blacktriangledown}}
+\DeclareUnicodeCharacter{21BA}{\ensuremath{\circlearrowleft}}
+\DeclareUnicodeCharacter{21BB}{\ensuremath{\circlearrowright}}
+\usepackage{amssymb}
+
+% Palette de l'application : papier calque, bleu de Prusse, ocre
+\definecolor{bordeaux}{HTML}{1D4E73}
+\definecolor{bordeauxl}{HTML}{E5EEF5}
+\definecolor{or}{HTML}{C07A1E}
+\definecolor{orl}{HTML}{FBF1E2}
+\definecolor{sapin}{HTML}{2C7A55}
+\definecolor{sapinl}{HTML}{E2F1E9}
+\definecolor{sky}{HTML}{1C6DB4}
+\definecolor{skyl}{HTML}{E6F0F8}
+\definecolor{summit}{HTML}{6B7A8F}
+\definecolor{night}{HTML}{1F2A33}
+\definecolor{ink}{HTML}{1F2430}
+\AtBeginDocument{\color{ink}}
+
+\titleformat{\section}
+  {\Large\bfseries\sffamily\color{bordeaux}}
+  {\makebox[1.6em][l]{\thesection}}{0.3em}{}
+  [{\vspace{1pt}\color{bordeaux!35}\titlerule[1.3pt]}]
+\titlespacing*{\section}{0pt}{14pt}{7pt}
+\titleformat{\subsection}{\large\bfseries\sffamily\color{night}}{\thesubsection}{0.5em}{}
+\pretocmd{\section}{\needspace{10\baselineskip}}{}{}
+\pretocmd{\subsection}{\needspace{7\baselineskip}}{}{}
+\widowpenalty=10000
+\clubpenalty=10000
+\raggedbottom
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+\setlist[enumerate]{itemsep=3pt,leftmargin=6mm}
+\setlist[itemize]{itemsep=2pt,leftmargin=5mm}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{bordeaux!40}\leaders\hrule height \headrulewidth\hfill}}
+\fancyfoot[C]{\sffamily\small\color{summit}\thepage}
+\renewcommand{\sectionmark}[1]{\markboth{#1}{}}
+
+\newcommand{\menu}[1]{\textsf{\textbf{\textcolor{bordeaux}{#1}}}}
+\newcommand{\touche}[1]{\tcbox[on line,boxsep=0pt,left=2pt,right=2pt,top=1.5pt,bottom=1.5pt,
+  colback=white,colframe=summit,boxrule=0.5pt,arc=1.5pt]{\footnotesize\textsf{#1}}}
+\newcommand{\fichier}[1]{\texttt{\small #1}}
+
+\newcommand{\boite}[5]{\newtcolorbox{#1}{enhanced,unbreakable,colback=#2,colframe=#3,
+  coltitle=white,fonttitle=\bfseries\sffamily\small,boxrule=0.9pt,arc=2.5pt,
+  left=2.5mm,right=2.5mm,top=1.2mm,bottom=1.2mm,title={#4~~#5}}}
+\newcommand{\capture}[2][1]{\par\needspace{8\baselineskip}\begin{center}\setlength{\fboxsep}{0pt}\setlength{\fboxrule}{0.6pt}%
+  \fcolorbox{summit!50}{white}{\includegraphics[width=\dimexpr#1\linewidth-1.3pt\relax]{#2}}\end{center}}
+
+\definecolor{rouge}{HTML}{A33A2E}
+\definecolor{rougel}{HTML}{F8E6E3}

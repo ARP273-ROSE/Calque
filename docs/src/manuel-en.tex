@@ -1,0 +1,218 @@
+\input{preambule}
+\usepackage[english]{babel}
+\usepackage[colorlinks=true,linkcolor=bordeaux,urlcolor=bordeaux]{hyperref}
+\hypersetup{pdftitle={Calque — user guide},pdfauthor={},pdfcreator={Calque}}
+\boite{astucebox}{orl}{or!85!black}{\faLightbulb}{Good to know}
+\boite{securitebox}{sapinl}{sapin}{\faShield*}{Your current disk is protected}
+\boite{attentionbox}{rougel}{rouge}{\faExclamationTriangle}{Warning}
+\newcommand{\astuce}[1]{\par\needspace{5\baselineskip}\begin{astucebox}#1\end{astucebox}}
+\newcommand{\attention}[1]{\par\needspace{5\baselineskip}\begin{attentionbox}#1\end{attentionbox}}
+\fancyhead[L]{\sffamily\small\color{bordeaux}\textbf{CALQUE — USER GUIDE}}
+\fancyhead[R]{\sffamily\small\color{summit}\leftmark}
+\input{version}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+\vspace*{2.2cm}
+\includegraphics[width=3.6cm]{../../logo_1024.png}\par
+\vspace{8mm}
+{\sffamily\Huge\bfseries\color{bordeaux} CALQUE\par}
+\vspace{3mm}
+{\sffamily\LARGE\color{ink} Clone a disk — Windows included —\\ to a larger disk\par}
+\vspace{2mm}
+{\sffamily\large\color{summit} User guide \textbullet{} version \versioncalque\par}
+\vspace{12mm}
+\begin{tcolorbox}[enhanced,width=0.82\linewidth,colback=orl,colframe=or,arc=4pt,boxrule=1.2pt,left=5mm,right=5mm,top=3mm,bottom=3mm]
+\sffamily\centering
+\textit{Calque}: French for a tracing, a faithful line-for-line copy of a drawing.\\[2mm]
+\raggedright
+Three steps:\\[1mm]
+\textbf{choose the two disks} \quad → \quad \textbf{read the plan} \quad → \quad \textbf{Clone}\\[1mm]
+then, once the new disk is in place: \textbf{Extend C:}.
+\end{tcolorbox}
+\vfill
+{\footnotesize\color{summit}\sffamily Windows (while running) \textbullet{} Linux (from a USB stick)\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\section{What Calque is for}
+
+Your system disk is too small and you bought a larger one. Calque copies \textbf{all} of the old disk
+to the new one — Windows' hidden partitions included — so that the computer starts from the new disk
+\textbf{exactly as before}, without reinstalling Windows or your software. The space gained is then
+given to C: in one click.
+
+\begin{securitebox}
+\begin{itemize}
+\item The source disk is \textbf{never modified}: Calque reads it and only writes to the target.
+\item The running system disk can never be chosen as the target.
+\item Before erasing the target, Calque shows what it will become and asks twice.
+\item Every copied block is \textbf{read back and compared}: a faulty USB link is detected.
+\item An interruption (cancel, unplugged cable, failure) leaves the target \textbf{empty}: it cannot be
+      mistaken for a complete clone.
+\end{itemize}
+\end{securitebox}
+
+\section{Before you start}
+
+\begin{enumerate}
+\item \textbf{Back up your important documents} elsewhere (stick, external disk, cloud). Calque does not
+      touch the source, but a backup remains the rule before any disk operation.
+\item \textbf{BitLocker}: if C: is encrypted (common on recent laptops, “device encryption”), decrypt it
+      first (\menu{Settings → Privacy \& security → Device encryption}, or \texttt{manage-bde -off C:} in
+      an administrator terminal) and wait until it finishes. Calque detects it and refuses otherwise.
+\item \textbf{Connect the new disk}: inside the PC, or in a USB enclosure.
+\item \textbf{Size}: the target must be at least as large as the part of the source used by
+      partitions (a 500~GB disk goes onto 500~GB or more; Calque works it out and tells you).
+\end{enumerate}
+
+\attention{\textbf{USB enclosures and 4096-byte sectors.} Some enclosures (mostly for large SATA disks)
+present the disk to Windows with 4096-byte sectors instead of 512. A copy written through such an
+enclosure \textbf{does not boot} once the disk is installed in the PC: the partition table is no longer
+read at the right place. This is a common cause of “successful” clones that do not boot. Calque compares
+the two disks and \textbf{refuses} in that case, with an explanation (figure~\ref{fig:4k}). Fix: another
+enclosure, the disk connected inside, or cloning on Linux (section~\ref{sec:linux}).}
+
+\section{Installing and starting Calque}
+
+\subsection*{Windows}
+Download \fichier{Calque-Setup.exe} from the project's \textbf{Releases} page and run it (installed for
+your account, no special rights). Calque then asks, \textbf{every time it starts}, for administrator
+rights: reading and writing a whole disk requires them.
+
+\subsection*{Linux}
+Download \fichier{Calque-linux-x86\_64.tar.gz}, extract it, run \fichier{installer.sh}, then start Calque
+\textbf{with sudo}: \texttt{sudo \textasciitilde/.local/bin/calque}. If the window does not open (a
+Wayland session refusing administrator windows), first type \texttt{xhost +si:localuser:root}, or use
+the command line (last section).
+
+\section{Cloning on Windows, without shutting down}\label{sec:windows}
+
+Calque copies the disk \textbf{while Windows is running}. For a consistent copy, it first takes a
+\textbf{snapshot} (VSS) of each volume in use: a frozen image of C: at that moment. You can keep using
+the computer; what you change during the copy simply will not be on the clone. Easiest: close your
+documents and let it work.
+
+\capture{../capture_plan-en.png}
+
+\begin{enumerate}
+\item \textbf{Source}: Calque picks the running system's disk by default.
+\item \textbf{Target}: the new disk. The system disk never appears in this list. After plugging in a
+      disk, click \menu{Refresh the list}.
+\item Read the \textbf{plan}: the “Today” bar shows the source, “After” the target, at the same scale.
+      Windows' small partitions (EFI, reserved) are at the start; C: keeps its place; the
+      \textbf{recovery} partition moves to the end of the disk, and the hatched “free” area is the
+      space gained, right after C:.
+\item Keep the \textbf{read-back} (check) ticked. It doubles the time but proves the copy.
+\item Tick “I understand that ALL the current content… will be erased”, click \menu{Clone}, and confirm
+      a second time.
+\end{enumerate}
+
+\capture{../capture_copie-en.png}
+
+Only the \textbf{used} blocks of C: are copied: a 500~GB disk holding 150~GB copies about 150~GB. Over
+USB 3, allow 5 to 15~minutes per 100~GB, and as much again for the check.
+
+\astuce{\menu{Cancel} stops cleanly: the target is left empty (no partition table) and the source disk
+has not changed. You can start again any time.}
+
+\section{Cloning on Linux, from a USB stick}\label{sec:linux}
+
+This is the safest method: Windows is \textbf{shut down}, its disk does not change during the copy, and
+no snapshot is needed. It is also the way out when the USB enclosure is the problem, since the new disk
+can be installed inside the PC next to the old one.
+
+\begin{enumerate}
+\item Prepare a “live” USB stick of a Linux distribution (Ubuntu, Linux Mint, Fedora…).
+\item In Windows, turn off \textbf{fast startup} (\menu{Control Panel → Power Options → Choose what the
+      power buttons do}), then shut down: otherwise Windows leaves its disk in a “hibernated” state.
+\item Start from the stick without installing Linux (“Try”).
+\item Install and start Calque with \texttt{sudo} (previous section), or on the command line:
+      \texttt{sudo calque -{}-list} then \texttt{sudo calque -{}-clone /dev/nvme0n1 /dev/sdb}.
+\item Choose source and target as on Windows. Calque refuses a source with a partition mounted
+      read-write (on a live stick, none is by default).
+\end{enumerate}
+
+\section{After cloning}\label{sec:apres}
+
+\begin{enumerate}
+\item \textbf{Shut} the computer down.
+\item \textbf{Put the new disk in place of the old one} (or unplug the old one). Windows does not start
+      from a USB enclosure: the disk must be inside.
+\item \textbf{Start.} Windows opens as before, from the new disk.
+\item Run Calque, \menu{After cloning} tab, and click \menu{Extend C:}. C: takes all the free space,
+      without restarting, in a few seconds.
+\end{enumerate}
+
+\capture{../capture_apres-en.png}
+
+\attention{\textbf{Do not start with both disks connected} the first time. The clone carries the same
+identifiers as the original (that is what lets it boot): Windows could start from one and mount
+partitions of the other. It actually sets the second one “offline” (“signature collision”). To reuse
+the old disk for data, connect it \textbf{afterwards} and erase it in \menu{Disk Management}.}
+
+\subsection*{Recovery environment}
+The recovery partition was moved to the end of the disk. If \texttt{reagentc /info} (administrator
+terminal) shows the recovery environment as “Disabled”, or a Windows update complains about it, the
+\menu{Repair the recovery environment} button turns it off and on again, which registers it at its new
+place.
+
+\section{When it does not work}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.36\linewidth} >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{What you see} & \textbf{What to do} \\
+\midrule
+“512-byte sectors on the source, 4096 on the target” & The USB enclosure has the problem described on
+page~\pageref{fig:4k}: another enclosure, the disk inside, or Linux. \\
+“The target is too small” & You need a target at least as large as stated. \\
+“A volume is encrypted with BitLocker” & Decrypt C: first, wait until it finishes, try again. \\
+“Dynamic disk or Storage Spaces” & Not supported (rare on a personal PC). \\
+“Access denied” & Run Calque as administrator (Windows) or with \texttt{sudo} (Linux). \\
+“Reading back found different blocks” & Faulty USB cable, port or enclosure, or a damaged target disk:
+change cable or port (preferably at the back of the PC) and start again. \\
+The PC does not start from the new disk & In the BIOS/UEFI, choose the new disk (“Windows Boot Manager”
+entry) as the first boot device; make sure the old one is unplugged. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{figure}[h]
+\capture{../capture_4k-en.png}
+\caption{Target seen through a USB enclosure with 4096-byte sectors: cloning refused.}\label{fig:4k}
+\end{figure}
+
+\section{What Calque does, exactly}
+
+\begin{enumerate}
+\item \textbf{Reads} the source's partition table (GPT or MBR), checked against its checksums.
+\item \textbf{Plan}: the same layout on the target; partitions after the largest one (recovery) are moved
+      to the end of the disk, aligned on 1~MiB.
+\item \textbf{Snapshots} of the volumes in use (Windows), always deleted at the end.
+\item \textbf{Erases} the start and the end of the target (old tables).
+\item \textbf{Copies} partition by partition; for NTFS, only the blocks marked used in the volume's
+      allocation map; each block gets a fingerprint.
+\item \textbf{Reads back} the target and compares the fingerprints.
+\item \textbf{Fixes} the boot sectors of moved volumes (partition position).
+\item \textbf{Partition table} written last, with the \textbf{same identifiers} (disk and partition GUIDs
+      in GPT, signature in MBR): the Windows boot manager refers to its partitions by them.
+\end{enumerate}
+
+\section{Command line}
+
+\begin{tabular}{>{\ttfamily}l l}
+calque -{}-list & lists the disks (number, model, size, sectors) \\
+calque -{}-clone 0 2 & clones disk 0 to disk 2 (Windows) \\
+calque -{}-clone /dev/nvme0n1 /dev/sdb & the same on Linux \\
+\quad -{}-yes & without asking for confirmation \\
+\quad -{}-no-verify & without reading back \\
+\quad -{}-keep-layout & without moving the recovery partition \\
+\end{tabular}
+
+\end{document}

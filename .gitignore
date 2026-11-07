@@ -1,0 +1,22 @@
+
+
+# --- kit Windows : fichiers produits a l'execution ---------------------------
+# Sur un poste ou le dossier de donnees est le depot lui-meme, sans ces lignes
+# chaque plantage viendrait salir « git status ».
+_rapports/
+reglages_rapports.json
+_crash_natif.log
+_crash_report.json
+dist/
+installer_out/
+.build_cache/
+# paquets produits par build_unix.py
+*-linux-*.tar.gz
+*-app-*.zip
+*-maj-*.zip
+*-linux.AppImage
+*.dmg
+__pycache__/
+*.pyc
+.pytest_cache/
+calque-erreur.log

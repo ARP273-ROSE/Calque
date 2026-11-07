@@ -1,0 +1,750 @@
+"""Rapports d'incident — module commun aux applications ARP273-ROSE.
+
+L'application est installée sur des postes que personne ne peut examiner : si
+elle plante, gèle ou refuse de démarrer, il n'existe aucun moyen de le savoir
+autrement. Ce module ramasse ce qui s'est passé et le dépose sur un point de
+collecte, ou, à défaut de réseau, dans un fichier que l'utilisateur peut
+envoyer à la main.
+
+Ce qui est couvert :
+
+  installation   première ouverture réussie, avec ce que la machine offre
+  demarrage      preuve de vie, au plus une fois par jour
+  plantage       exception Python non rattrapée (sys.excepthook)
+  crash_natif    mort brutale côté Qt/C, récupérée via faulthandler
+  gel            interface figée plus de N secondes, avec les piles des threads
+  manuel         l'utilisateur décrit lui-même ce qui ne va pas
+
+Trois règles gouvernent tout le module :
+
+1. **Rien ne part sans accord.** Le consentement est demandé au premier
+   lancement et peut être retiré ; sans lui, les rapports restent en local.
+2. **Rien ne bloque l'application.** Tout envoi part dans un fil de fond avec
+   un délai court. Un point de collecte injoignable ne doit jamais retarder le
+   démarrage ni figer une fenêtre.
+3. **Rien ne se perd.** Un envoi qui échoue est mis en file d'attente et
+   repart au démarrage suivant. C'est indispensable : le rapport le plus
+   précieux — celui d'un plantage — naît au pire moment pour le réseau.
+
+Le module ne connaît ni PyQt ni la base de données : il doit pouvoir servir
+avant que l'un ou l'autre ne soit prêt, et pendant qu'ils meurent.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import platform
+import sys
+import threading
+import time
+import traceback
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+# Point de collecte. Il est greffé sur un domaine qui a déjà son certificat et
+# son passage par Cloudflare.
+#
+# Aucune clé secrète n'accompagne les envois, et c'est délibéré : tout secret
+# embarqué dans une application téléchargeable cesse d'en être un dès la
+# première installation. L'en-tête ci-dessous ne fait qu'annoncer d'où vient
+# la requête, pour écarter le balayage automatique. Le serveur se protège
+# autrement — il n'expose aucune lecture, borne la taille et plafonne le débit.
+ENDPOINT = 'https://fenice.giff.re/rapports/collecte.php'
+DELAI = 8  # secondes
+
+# Renseignes par init() depuis kit.json : le point de collecte range les
+# rapports par application, et l'en-tete X-App porte ce nom.
+APPLICATION = 'application'
+VERSION_APP = ''
+
+# Au-delà, une file d'attente n'a plus de valeur de diagnostic et ne fait que
+# grossir : on préfère jeter les plus vieux que remplir le disque de quelqu'un.
+FILE_MAX = 50
+AGE_MAX = 30 * 86400
+
+_dossier: Path | None = None
+_reglages_path: Path | None = None
+_reglages: dict = {}
+_verrou = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
+# Installation du module
+# ---------------------------------------------------------------------------
+
+def init(data_dir, application=None, version=None) -> None:
+    """Prépare le module. À appeler le plus tôt possible au démarrage.
+
+    `data_dir` est le dossier de données de l'application : c'est là que vivent
+    la file d'attente et le consentement. On ne passe pas par la base, qui peut
+    très bien être justement ce qui ne s'ouvre pas.
+
+    `application` et `version` sont lus dans kit.json quand on ne les fournit
+    pas. Ce fichier accompagne le module dans le paquet installé ; c'est lui
+    qui distingue un rapport d'AstroManager d'un rapport de MusicOthèque.
+    """
+    global _dossier, _reglages_path, _reglages, APPLICATION, VERSION_APP
+    fiche = _lire_kit()
+    APPLICATION = application or fiche.get('nom_technique') or 'application'
+    VERSION_APP = version or _lire_version_fichier() or ''
+    base = Path(data_dir)
+    _dossier = base / '_rapports'
+    _reglages_path = base / 'reglages_rapports.json'
+    try:
+        _dossier.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        log.warning("File d'attente des rapports indisponible", exc_info=True)
+    _reglages = _lire_reglages()
+
+
+def _lire_kit() -> dict:
+    """Fiche d'identite de l'application, posee a cote du module."""
+    try:
+        chemin = Path(__file__).resolve().parent / 'kit.json'
+        return json.loads(chemin.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
+
+
+def _lire_version_fichier() -> str:
+    try:
+        chemin = Path(__file__).resolve().parent / 'VERSION'
+        return chemin.read_text(encoding='utf-8').strip()
+    except Exception:
+        return ''
+
+
+def _lire_reglages() -> dict:
+    if _reglages_path is None or not _reglages_path.exists():
+        return {}
+    try:
+        return json.loads(_reglages_path.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
+
+
+def _ecrire_reglages() -> None:
+    if _reglages_path is None:
+        return
+    try:
+        _reglages_path.write_text(
+            json.dumps(_reglages, indent=2, ensure_ascii=False), encoding='utf-8')
+    except Exception:
+        log.warning("Réglages des rapports non enregistrés", exc_info=True)
+
+
+def consentement() -> bool | None:
+    """True, False, ou None tant que la question n'a pas été posée."""
+    return _reglages.get('envoi_autorise')
+
+
+def definir_consentement(accepte: bool) -> None:
+    _reglages['envoi_autorise'] = bool(accepte)
+    _reglages['consentement_date'] = time.strftime('%Y-%m-%d %H:%M:%S')
+    _ecrire_reglages()
+    log.info("Envoi des rapports %s", "autorisé" if accepte else "refusé")
+
+
+# ---------------------------------------------------------------------------
+# Anonymisation
+# ---------------------------------------------------------------------------
+
+def anonymiser(texte: str | None) -> str:
+    """Retire ce qui identifie la machine et son propriétaire.
+
+    Le dossier personnel devient `~`, et tout ce qui ressemble à un chemin de
+    bibliothèque musicale est réduit à sa racine : les titres de morceaux d'un
+    utilisateur ne regardent personne, pas même celui qui reçoit le rapport.
+    """
+    if not texte:
+        return ''
+    import re
+    texte = str(texte)
+    # Nom de la machine et nom d'utilisateur : jamais transmis (repris de
+    # Coupole), même hors d'un chemin (« Connexion à MON-PC refusée »).
+    try:
+        hote = platform.node()
+        if hote and len(hote) > 2:
+            texte = re.sub(r'(?<![A-Za-z0-9])%s(?![A-Za-z0-9])' % re.escape(hote), '<poste>', texte)
+    except Exception:
+        pass
+    home = str(Path.home())
+    for variante in (home.replace('\\', '/'), home, home.lower()):
+        if variante and len(variante) > 1:
+            texte = texte.replace(variante, '~')
+    for var in ('USERNAME', 'USER', 'LOGNAME'):
+        nom = os.environ.get(var)
+        if nom and len(nom) > 2:
+            texte = re.sub(r'(?<![A-Za-z0-9])%s(?![A-Za-z0-9])' % re.escape(nom), '<utilisateur>', texte)
+    # C:\Musique\Artiste\Album\03 Titre.mp3  ->  C:\Musique\…\03 Titre.mp3
+    texte = re.sub(r'([A-Za-z]:\\[^\\\n"\']{1,30})(\\[^\\\n"\']{1,60}){2,}\\',
+                   r'\1\\…\\', texte)
+    texte = re.sub(r'(/(?:home|Users|mnt|media)/[^/\n"\']{1,30})(/[^/\n"\']{1,60}){2,}/',
+                   r'\1/…/', texte)
+    return texte
+
+
+def _memoire_vive_go() -> float:
+    """Mémoire vive installée, en gigaoctets. 0 si on ne sait pas."""
+    try:
+        if sys.platform == 'win32':
+            import ctypes
+
+            class _Etat(ctypes.Structure):
+                _fields_ = [('dwLength', ctypes.c_ulong),
+                            ('dwMemoryLoad', ctypes.c_ulong),
+                            ('ullTotalPhys', ctypes.c_ulonglong),
+                            ('ullAvailPhys', ctypes.c_ulonglong),
+                            ('ullTotalPageFile', ctypes.c_ulonglong),
+                            ('ullAvailPageFile', ctypes.c_ulonglong),
+                            ('ullTotalVirtual', ctypes.c_ulonglong),
+                            ('ullAvailVirtual', ctypes.c_ulonglong),
+                            ('ullAvailExtendedVirtual', ctypes.c_ulonglong)]
+
+            etat = _Etat()
+            etat.dwLength = ctypes.sizeof(_Etat)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(etat))
+            return round(etat.ullTotalPhys / 1e9, 1)
+        if sys.platform == 'darwin':
+            # macOS has no /proc. Without this the report claimed 0 GB of
+            # RAM on every Mac -- not a crash, but a wrong number in the one
+            # place someone looks when diagnosing a freeze.
+            import subprocess
+            sortie = subprocess.run(['sysctl', '-n', 'hw.memsize'],
+                                    capture_output=True, text=True, timeout=5)
+            return round(int(sortie.stdout.strip()) / 1e9, 1)
+        with open('/proc/meminfo', encoding='utf-8') as f:
+            for ligne in f:
+                if ligne.startswith('MemTotal:'):
+                    return round(int(ligne.split()[1]) * 1024 / 1e9, 1)
+    except Exception:
+        pass
+    return 0.0
+
+
+def _place_libre_go(dossier) -> float:
+    try:
+        import shutil
+        return round(shutil.disk_usage(str(dossier)).free / 1e9, 1)
+    except Exception:
+        return 0.0
+
+
+def _machine() -> dict:
+    """Le strict nécessaire pour reproduire un problème."""
+    infos = {
+        # Par défaut le nom de la machine, pour reconnaître un poste suivi ;
+        # voir l'option kit.json « rapports.poste » (_poste). L'identifiant
+        # aléatoire part en plus, pour distinguer deux installations d'une
+        # même machine.
+        'poste': _poste(),
+        'installation': _identifiant_installation(),
+        'os': f"{platform.system()} {platform.release()}",
+        'os_detail': platform.version(),
+        'arch': platform.machine(),
+        'python': platform.python_version(),
+        'processeur': (platform.processor() or '')[:60],
+        'coeurs': os.cpu_count() or 0,
+        'memoire_go': _memoire_vive_go(),
+    }
+    if _dossier is not None:
+        infos['place_libre_go'] = _place_libre_go(_dossier.parent)
+    infos['application'] = APPLICATION
+    infos['version'] = VERSION_APP or '?'
+    return infos
+
+
+def _poste() -> str:
+    """Ce que le champ « poste » transmet.
+
+    Par défaut le NOM DE LA MACHINE (kit.json « rapports.poste » = « machine »).
+    Une application utilisée par des tiers (Coupole, par d'autres étudiants)
+    met « installation » : le nom de la machine — qui peut contenir un prénom,
+    « PC-de-Marie » — n'est alors jamais transmis, l'identifiant aléatoire le
+    remplace. Le nom reste lu localement pour être masqué dans les traces."""
+    mode = ((_lire_kit().get('rapports') or {}).get('poste') or 'machine')
+    if mode == 'installation':
+        return _identifiant_installation()
+    return platform.node() or '?'
+
+
+def _identifiant_installation() -> str:
+    """Identifiant aleatoire tire au premier rapport et garde avec le
+    consentement ; il ne dit rien de la machine ni de son proprietaire."""
+    ident = _reglages.get('id_installation')
+    if not ident:
+        import uuid
+        ident = _reglages['id_installation'] = 'install-' + uuid.uuid4().hex[:12]
+        _ecrire_reglages()
+    return ident
+
+
+#: Bornes d'un rapport : un champ texte garde sa FIN (le bas d'une trace est
+#: ce qui compte), une structure est tronquee (repris de Coupole).
+CHAMP_MAX = 8000
+
+
+def _borner(valeur, profondeur=0):
+    if isinstance(valeur, str):
+        return anonymiser(valeur[-CHAMP_MAX:] if len(valeur) > CHAMP_MAX else valeur)
+    if profondeur > 4:
+        return str(valeur)[:200]
+    if isinstance(valeur, dict):
+        return {str(k)[:80]: _borner(v, profondeur + 1) for k, v in list(valeur.items())[:100]}
+    if isinstance(valeur, (list, tuple)):
+        return [_borner(v, profondeur + 1) for v in list(valeur)[:200]]
+    if isinstance(valeur, (int, float, bool)) or valeur is None:
+        return valeur
+    return anonymiser(str(valeur)[:CHAMP_MAX])
+
+
+def extraits_journal(chemin, lignes_max: int = 40) -> str:
+    """Les dernières lignes ennuyeuses du journal, anonymisées.
+
+    On ne remonte pas le journal entier : il contient surtout des titres de
+    morceaux et du bruit de lecture. Seuls les niveaux WARNING et au-delà
+    disent quelque chose d'un incident.
+    """
+    try:
+        chemin = Path(chemin)
+        if not chemin.exists():
+            return ''
+        lignes = chemin.read_text(encoding='utf-8', errors='replace').splitlines()
+    except Exception:
+        return ''
+    retenues = [l for l in lignes
+                if any(n in l for n in ('WARNING', 'ERROR', 'CRITICAL', 'Traceback'))]
+    if not retenues:
+        retenues = lignes[-10:]
+    return anonymiser('\n'.join(retenues[-lignes_max:]))[:6000]
+
+
+# ---------------------------------------------------------------------------
+# Envoi
+# ---------------------------------------------------------------------------
+
+# Certificats racine : le Python EMBARQUÉ ne trouve pas toujours ceux du
+# système, et celui de Windows peut proposer une chaîne périmée. Deux retours
+# d'utilisateurs (Simulateur Perce-Neige, 09 et 11/10/2026) :
+#   - Manjaro : « CERTIFICATE_VERIFY_FAILED unable to get local issuer
+#     certificate » — le Python autonome cherche les racines là où les range
+#     la machine de construction, Arch/Fedora/openSUSE les rangent ailleurs ;
+#   - Windows : « certificate has expired » sur une chaîne pourtant valide
+#     (Let's Encrypt → ISRG Root X2) : le magasin du système proposait un
+#     chemin passant par un certificat périmé.
+# D'où la cascade : magasin du système ; s'il est vide (hors Windows), les
+# emplacements connus des distributions ; et si la vérification échoue
+# quand même, certifi et les racines embarquées par l'application (kit.json
+# « racines_tls », un fichier PEM à côté du module). JAMAIS de vérification
+# désactivée.
+_EMPLACEMENTS_RACINES = (
+    '/etc/ssl/certs/ca-certificates.crt',                    # Debian, Ubuntu, Arch (lien)
+    '/etc/ca-certificates/extracted/tls-ca-bundle.pem',      # Arch, Manjaro
+    '/etc/ssl/cert.pem',                                     # Arch, Alpine, macOS
+    '/etc/pki/tls/certs/ca-bundle.crt',                      # Fedora, RHEL
+    '/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem',     # Fedora, RHEL
+    '/etc/ssl/ca-bundle.pem',                                # openSUSE
+)
+_contexte_systeme = None
+
+
+def contexte_tls():
+    """Le contexte TLS du système, complété des racines de la distribution
+    quand le Python embarqué n'en trouve aucune."""
+    global _contexte_systeme
+    if _contexte_systeme is not None:
+        return _contexte_systeme
+    import ssl
+    ctx = ssl.create_default_context()
+    if not ctx.get_ca_certs() and os.name != 'nt':
+        for f in _EMPLACEMENTS_RACINES:
+            if os.path.isfile(f):
+                try:
+                    ctx.load_verify_locations(cafile=f)
+                    break
+                except Exception:
+                    pass
+        else:
+            try:
+                import certifi
+                ctx.load_verify_locations(cafile=certifi.where())
+            except Exception:
+                pass
+    _contexte_systeme = ctx
+    return ctx
+
+
+def contexte_tls_secours():
+    """Contexte de repli : certifi et les racines embarquées par l'application
+    (kit.json « racines_tls »), ou None s'il n'y a ni l'un ni l'autre."""
+    import ssl
+    ctx = None
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        ctx = None
+    nom = _lire_kit().get('racines_tls') or ''
+    if nom:
+        f = Path(__file__).resolve().parent / nom
+        if f.is_file():
+            try:
+                if ctx is None:
+                    ctx = ssl.create_default_context(cafile=str(f))
+                else:
+                    ctx.load_verify_locations(cafile=str(f))
+            except Exception:
+                pass
+    return ctx
+
+
+def ouvrir_url(requete, timeout: float = 30.0):
+    """urllib.request.urlopen avec le contexte du système, puis, si la
+    vérification du certificat échoue, avec le contexte de secours. Sert
+    aussi à updater.py. Jamais sans vérification."""
+    import ssl
+    try:
+        return urllib.request.urlopen(requete, timeout=timeout, context=contexte_tls())
+    except urllib.error.URLError as e:
+        raison = getattr(e, 'reason', e)
+        if not isinstance(raison, ssl.SSLCertVerificationError) \
+                and 'CERTIFICATE_VERIFY_FAILED' not in str(e):
+            raise
+        secours = contexte_tls_secours()
+        if secours is None:
+            raise
+        log.info("Certificat refusé par le magasin du système, nouvel essai "
+                 "avec les racines de secours : %s", e)
+        return urllib.request.urlopen(requete, timeout=timeout, context=secours)
+
+
+def _poster(charge: bytes) -> bool:
+    requete = urllib.request.Request(
+        ENDPOINT, data=charge, method='POST',
+        headers={
+            'Content-Type': 'application/json; charset=utf-8',
+            'X-App': f"{APPLICATION}/{VERSION_APP or '?'}",
+            'User-Agent': 'rapports-kit-windows',
+        })
+    try:
+        with ouvrir_url(requete, timeout=DELAI) as r:
+            return 200 <= r.status < 300
+    except urllib.error.HTTPError as e:
+        # 4xx : le serveur a compris et refuse. Réessayer n'y changera rien,
+        # sauf pour 429 (trop de rapports cette heure-ci), qui est temporaire.
+        if e.code == 429 or e.code >= 500:
+            return False
+        log.info("Rapport refusé par le serveur (%s)", e.code)
+        return True  # inutile de le garder en file
+    except Exception as e:
+        log.info("Rapport non transmis : %s", e)
+        return False
+
+
+def _mettre_en_file(rapport: dict) -> None:
+    if _dossier is None:
+        return
+    try:
+        nom = f"{time.strftime('%Y%m%dT%H%M%S')}-{rapport.get('genre', 'autre')}-{os.getpid()}.json"
+        (_dossier / nom).write_text(
+            json.dumps(rapport, ensure_ascii=False), encoding='utf-8')
+    except Exception:
+        log.warning("Rapport perdu : mise en file impossible", exc_info=True)
+
+
+def envoyer(genre: str, **champs) -> dict:
+    """Constitue un rapport et le transmet, sans jamais bloquer l'appelant.
+
+    Renvoie le rapport constitué — utile pour le repli par fichier quand
+    l'utilisateur veut l'envoyer lui-même.
+    """
+    rapport = _machine()
+    rapport['genre'] = genre
+    rapport['horodatage'] = time.strftime('%Y-%m-%d %H:%M:%S')
+    for cle, valeur in champs.items():
+        rapport[cle] = _borner(valeur)
+
+    if consentement() is not True:
+        # Pas d'accord : on garde quand même une trace locale, pour que le
+        # bouton « Signaler un problème » ait de quoi constituer un envoi
+        # manuel, et pour que rien ne soit perdu si l'accord vient plus tard.
+        _mettre_en_file(rapport)
+        return rapport
+
+    charge = json.dumps(rapport, ensure_ascii=False).encode('utf-8')
+
+    def tache():
+        if not _poster(charge):
+            _mettre_en_file(rapport)
+
+    threading.Thread(target=tache, name='rapport', daemon=True).start()
+    return rapport
+
+
+def vider_file() -> int:
+    """Renvoie les rapports restés en attente. À appeler au démarrage.
+
+    Le réseau manque rarement au bon moment : un plantage coupe souvent
+    l'application avant que l'envoi n'aboutisse. Cette reprise est donc le
+    chemin normal, pas un cas dégradé.
+    """
+    if _dossier is None:
+        return 0
+
+    try:
+        fichiers = sorted(_dossier.glob('*.json'))
+    except Exception:
+        return 0
+
+    # Les plus vieux d'abord, mais on ne garde que les plus récents — MÊME
+    # sans accord d'envoi : sinon la file d'un utilisateur qui a refusé
+    # grossissait sans fin (Simulateur Perce-Neige, 2026).
+    limite = time.time() - AGE_MAX
+    for vieux in fichiers[:-FILE_MAX] if len(fichiers) > FILE_MAX else []:
+        vieux.unlink(missing_ok=True)
+    fichiers = sorted(_dossier.glob('*.json'))
+    if consentement() is not True:
+        for f in fichiers:
+            try:
+                if f.stat().st_mtime < limite:
+                    f.unlink(missing_ok=True)
+            except Exception:
+                pass
+        return 0
+
+    envoyes = 0
+    for f in fichiers:
+        try:
+            if f.stat().st_mtime < limite:
+                f.unlink(missing_ok=True)
+                continue
+            charge = f.read_bytes()
+        except Exception:
+            continue
+        if _poster(charge):
+            f.unlink(missing_ok=True)
+            envoyes += 1
+        else:
+            break  # réseau absent : inutile d'insister sur les suivants
+    if envoyes:
+        log.info("%d rapport(s) en attente transmis", envoyes)
+    return envoyes
+
+
+def reprendre_file_en_fond() -> None:
+    """Vide la file dans un fil de fond : le démarrage ne doit rien attendre."""
+    threading.Thread(target=vider_file, name='rapports-file', daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# Genres particuliers
+# ---------------------------------------------------------------------------
+
+def signaler_demarrage(premier: bool = False, **champs) -> None:
+    """Preuve de vie, au plus une fois par jour.
+
+    Sans elle, le silence est ambigu : une application qui ne dit rien peut
+    aussi bien tourner sans incident que ne plus démarrer du tout.
+    """
+    aujourdhui = time.strftime('%Y-%m-%d')
+    if premier:
+        envoyer('installation', **champs)
+        _reglages['dernier_demarrage'] = aujourdhui
+        _reglages['installee_le'] = aujourdhui
+        _ecrire_reglages()
+        return
+    if _reglages.get('dernier_demarrage') == aujourdhui:
+        return
+    _reglages['dernier_demarrage'] = aujourdhui
+    _ecrire_reglages()
+    envoyer('demarrage', **champs)
+
+
+def signaler_plantage(tb_texte: str, **champs) -> dict:
+    resume = ''
+    for ligne in reversed(tb_texte.strip().splitlines()):
+        if ligne.strip():
+            resume = ligne.strip()[:200]
+            break
+    return envoyer('plantage', traceback=tb_texte, resume=resume, **champs)
+
+
+def relever_crash_natif(chemin_faulthandler) -> bool:
+    """Ramasse la trace laissée par un crash côté C/Qt, s'il y en a une.
+
+    Une faute de segmentation dans Qt ne passe pas par `sys.excepthook` :
+    l'application disparaît, et l'utilisateur ne peut rien raconter d'autre que
+    « ça s'est fermé tout seul ». `faulthandler` écrit la pile avant la mort ;
+    on la retrouve au démarrage suivant.
+    """
+    chemin = Path(chemin_faulthandler)
+    try:
+        if not chemin.exists() or chemin.stat().st_size == 0:
+            return False
+        texte = chemin.read_text(encoding='utf-8', errors='replace')
+    except Exception:
+        return False
+    try:
+        chemin.unlink(missing_ok=True)
+    except Exception:
+        pass
+    if not texte.strip():
+        return False
+    envoyer('crash_natif', trace=anonymiser(texte)[:8000],
+            resume=texte.strip().splitlines()[0][:200])
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Surveillance des gels
+# ---------------------------------------------------------------------------
+
+class Vigie:
+    """Détecte une interface figée et raconte ce qui la retenait.
+
+    Le principe : le fil graphique fait battre un compteur à intervalle
+    régulier. Un fil de fond, lui, regarde l'heure. Si le battement s'arrête,
+    c'est que la boucle d'événements ne tourne plus — donc que la fenêtre est
+    figée. On capture alors la pile de TOUS les fils : celle du fil graphique
+    dit exactement quelle opération n'a pas été déportée.
+
+    Un rapport par épisode, jamais plus : un gel de trois minutes ne doit pas
+    produire trente rapports identiques.
+    """
+
+    def __init__(self, seuil: float = 10.0, periode: float = 2.0):
+        self.seuil = seuil
+        self.periode = periode
+        self._dernier = time.monotonic()
+        self._signale = False
+        self._debut_gel = 0.0
+        self._actif = False
+        self._fil_gui = threading.get_ident()
+        # A-t-on deja vu battre le fil graphique, au moins une fois ?
+        #
+        # Tant que la reponse est non, la vigie n'a rien a dire : personne ne
+        # lui a branche de battement, et une interface dont on n'a jamais pris
+        # le pouls n'est pas une interface figee. Sans ce garde-fou, une
+        # integration incomplete — appeler `demarrer()` en oubliant le
+        # minuteur qui appelle `battre()` — produit une fausse alerte de gel
+        # a chaque lancement. C'est arrive : six rapports remontes d'un poste
+        # ou tout allait bien, la pile montrant le fil graphique au repos.
+        self._deja_battu = False
+        # Drapeau distinct de `_signale`, et ce n'est pas un detail : les
+        # confondre faisait annoncer la « fin » d'un gel qui n'avait jamais
+        # ete signale, avec pour duree le temps ecoule depuis le demarrage de
+        # la machine — `_debut_gel` valant encore zero. Trois rapports sont
+        # ainsi remontes d'un poste sain : « fin du gel apres 23 573 s »,
+        # soit exactement les six heures et demie d'allumage de l'ordinateur.
+        self._avertissement_sans_battement = False
+        # Facultatif : fonction appelée DEPUIS LA VIGIE au début d'un gel, qui
+        # rend un dict de contexte joint au rapport (état d'un processus
+        # enfant, fin d'un journal...). La pile Python seule ne dit rien
+        # quand le blocage est natif (Simulateur Perce-Neige : fenêtre 3D
+        # embarquée qui ne répond plus). Elle ne doit pas toucher à Qt.
+        self.contexte = None
+
+    def battre(self) -> None:
+        """À appeler depuis le fil graphique, à intervalle régulier."""
+        maintenant = time.monotonic()
+        self._deja_battu = True
+        if self._signale:
+            duree = maintenant - self._debut_gel
+            log.warning("Interface de nouveau réactive après %.0f s", duree)
+            envoyer('gel', resume=f"fin du gel après {duree:.0f} s",
+                    duree_s=round(duree, 1), phase='fin')
+            self._signale = False
+        self._dernier = maintenant
+
+    def demarrer(self, fil_gui: int | None = None) -> None:
+        self._fil_gui = fil_gui or threading.get_ident()
+        self._actif = True
+        threading.Thread(target=self._boucle, name='vigie', daemon=True).start()
+
+    def arreter(self) -> None:
+        self._actif = False
+
+    def _boucle(self) -> None:
+        while self._actif:
+            time.sleep(self.periode)
+            retard = time.monotonic() - self._dernier
+            if not self._deja_battu:
+                # Rien ne bat : ce n'est pas un gel, c'est un branchement
+                # manquant. On le dit dans le journal, une seule fois, et on
+                # se tait — mieux vaut une vigie muette qu'une vigie qui crie
+                # au loup a chaque demarrage.
+                if not self._avertissement_sans_battement:
+                    self._avertissement_sans_battement = True
+                    log.warning(
+                        "Vigie sans battement : aucun appel a battre() depuis "
+                        "le fil graphique. Surveillance des gels inactive.")
+                continue
+            if retard >= self.seuil and not self._signale:
+                self._signale = True
+                self._debut_gel = self._dernier
+                supplement = {}
+                if self.contexte is not None:
+                    try:
+                        supplement = {'contexte': self.contexte()}
+                    except Exception as e:
+                        supplement = {'contexte': {'erreur': repr(e)[:200]}}
+                try:
+                    envoyer('gel', resume=f"interface figée depuis {retard:.0f} s",
+                            retard_s=round(retard, 1), phase='debut',
+                            piles=self._piles(), **supplement)
+                except Exception:
+                    log.warning("Rapport de gel impossible", exc_info=True)
+
+    def _piles(self) -> str:
+        """Pile de chaque fil, celle du fil graphique en premier."""
+        morceaux = []
+        try:
+            cadres = sys._current_frames()
+        except Exception:
+            return ''
+        noms = {t.ident: t.name for t in threading.enumerate()}
+        ordre = sorted(cadres, key=lambda i: i != self._fil_gui)
+        for ident in ordre:
+            nom = noms.get(ident, '?')
+            etiquette = 'FIL GRAPHIQUE' if ident == self._fil_gui else f'fil {nom}'
+            pile = ''.join(traceback.format_stack(cadres[ident])[-12:])
+            morceaux.append(f"--- {etiquette} ({ident}) ---\n{pile}")
+        return anonymiser('\n'.join(morceaux))[:8000]
+
+
+# ---------------------------------------------------------------------------
+# Repli : un fichier que l'utilisateur envoie lui-même
+# ---------------------------------------------------------------------------
+
+def paquet_local(rapport: dict, journal=None) -> Path | None:
+    """Écrit un .zip sur le Bureau et renvoie son chemin.
+
+    C'est la porte de sortie quand le point de collecte est injoignable, ou
+    quand l'envoi automatique a été refusé : l'utilisateur a alors un fichier
+    unique à joindre à un message, plutôt qu'une chasse au journal.
+    """
+    import zipfile
+    bureau = Path.home() / 'Desktop'
+    if not bureau.is_dir():
+        bureau = Path.home() / 'Bureau'
+    if not bureau.is_dir():
+        bureau = Path.home()
+
+    cible = bureau / f"{APPLICATION}-rapport-{time.strftime('%Y%m%d-%H%M%S')}.zip"
+    try:
+        with zipfile.ZipFile(cible, 'w', zipfile.ZIP_DEFLATED) as z:
+            z.writestr('rapport.json',
+                       json.dumps(rapport, indent=2, ensure_ascii=False))
+            if journal:
+                extrait = extraits_journal(journal, lignes_max=200)
+                if extrait:
+                    z.writestr('journal.txt', extrait)
+        return cible
+    except Exception:
+        log.warning("Paquet local impossible", exc_info=True)
+        return None
