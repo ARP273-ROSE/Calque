@@ -14,7 +14,7 @@ from . import style
 from .i18n import duree, langue, message, tr
 
 # alertes mises en avant (fond orangé) ; les autres sont « à savoir »
-IMPORTANTS = {"plan.cible_non_vide", "plan.cible_occupee", "plan.batterie", "plan.place_cliche", "plan.sante",
+IMPORTANTS = {"plan.ntfs_sale", "plan.cible_non_vide", "plan.cible_occupee", "plan.batterie", "plan.place_cliche", "plan.sante",
               "plan.demarrage_rapide", "plan.volume_sans_cliche"}
 
 COULEURS = {"efi": "#C07A1E", "msr": "#9AA7B1", "donnees": "#1D4E73", "recuperation": "#5E8C61",
@@ -539,6 +539,10 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
                 remarques += tr("fin.illisibles", n=bilan.secteurs_illisibles)
             if bilan.reconnexions:
                 remarques += tr("fin.reconnexions", n=bilan.reconnexions)
+            if bilan.controles:
+                ko = [o for o, ok, _ in bilan.controles if not ok]
+                remarques += tr("fin.controles", resultat=tr("fin.controle_ko", outil=", ".join(ko)) if ko
+                                else tr("fin.controle_ok") + " (" + ", ".join(o.split()[0] for o, _, _ in bilan.controles) + ")")
             QtWidgets.QMessageBox.information(self, tr("fin.titre"), tr(
                 "fin.texte", copie=D.octets_lisibles(bilan.repris_a + bilan.octets_copies), verifie=verifie,
                 duree=duree(bilan.duree), remarques=remarques))

@@ -178,3 +178,44 @@ def test_clonage_mbr(tmp_path):
     vol = fabrique.extraire(cible, c.debut, c.secteurs, tmp_path / "c.img")
     for nom, contenu in temoins.items():
         assert fabrique.lire_fichier_ntfs(vol, nom) == contenu
+
+
+def test_volume_ntfs_marque_a_reparer(tmp_path):
+    """Drapeau « dirty » de NTFS : signalé, comme ntfsclone/partclone le font."""
+    temoins = fabrique.fichiers_temoins(n=1)
+    disque, parts = fabrique.disque_gpt(tmp_path, fichiers=temoins)
+    deb, n = parts[3]
+    d = ouvrir(str(disque))
+    vue = lambda p, t: d.lire(deb * 512 + p, t)  # noqa: E731
+    assert not ntfs.volume_a_reparer(vue)
+    d.fermer()
+    # ntfs-3g pose le drapeau : on extrait le volume, on le marque, on le remet
+    vol = fabrique.extraire(disque, deb, n, tmp_path / "c.img")
+    subprocess.run(["ntfsfix", "-d", str(vol)], capture_output=True)          # remet à zéro d'abord
+    import struct
+    brut = bytearray(vol.read_bytes())
+    s = bytes(brut[:512])
+    oct_sect, cluster, lcn, taille_rec = ntfs._geometrie(s)
+    rec_pos = lcn * cluster + 3 * taille_rec
+    rec = bytearray(brut[rec_pos:rec_pos + taille_rec])
+    ntfs._appliquer_correctifs(rec, oct_sect)
+    pos = struct.unpack_from("<H", rec, 0x14)[0]
+    while True:
+        typ, lg = struct.unpack_from("<II", rec, pos)
+        if typ == 0x70:
+            off = struct.unpack_from("<H", rec, pos + 0x14)[0]
+            fl_pos = pos + off + 0x0A
+            break
+        pos += lg
+    # écrire le drapeau dans l'enregistrement brut (hors fin de secteur : pas de fixup à refaire)
+    assert fl_pos % oct_sect < oct_sect - 2
+    brut[rec_pos + fl_pos] |= 1
+    with open(disque, "r+b") as f:
+        f.seek(deb * 512 + rec_pos + fl_pos)
+        f.write(bytes([brut[rec_pos + fl_pos]]))
+    d = ouvrir(str(disque))
+    assert ntfs.volume_a_reparer(lambda p, t: d.lire(deb * 512 + p, t))
+    d.fermer()
+    cible = _vide(tmp_path / "cible.img", 2000)
+    plan = clonage.preparer_plan(disques.disque_image(str(disque)), disques.disque_image(str(cible)))
+    assert any(c == "plan.ntfs_sale" for c, _ in plan.avertissements)

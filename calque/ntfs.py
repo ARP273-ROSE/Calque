@@ -192,3 +192,41 @@ def retouches_deplacement(lire, taille_volume: int, ss: int, nouveau_debut: int)
         if 0 < secours < 32:
             corrige(secours * ss, lire(secours * ss, ss))
     return retouches
+
+
+def _geometrie(s: bytes) -> tuple[int, int, int, int]:
+    octets_secteur, cluster = _taille_cluster(s)
+    lcn_mft = struct.unpack_from("<Q", s, 0x30)[0]
+    cpr = struct.unpack_from("<b", s, 0x40)[0]
+    taille_rec = (1 << -cpr) if cpr < 0 else cpr * cluster
+    return octets_secteur, cluster, lcn_mft, taille_rec
+
+
+def volume_a_reparer(lire) -> bool:
+    """Le volume est-il marqué « à vérifier » (drapeau VOLUME_IS_DIRTY) ?
+
+    Même contrôle que ntfsclone et partclone (outils libres), qui refusent de
+    copier un tel volume sans --force : Windows y a vu une incohérence et
+    lancera chkdsk au prochain démarrage. Copier l'incohérence ne la répare
+    pas ; mieux vaut la réparer d'abord (chkdsk C: /f).
+    Lit l'attribut $VOLUME_INFORMATION (0x70) de l'enregistrement 3 ($Volume).
+    """
+    s = lire(0, 512)
+    if nature(s) != "ntfs":
+        return False
+    octets_secteur, cluster, lcn_mft, taille_rec = _geometrie(s)
+    rec = bytearray(lire(lcn_mft * cluster + 3 * taille_rec, taille_rec))
+    if rec[:4] != b"FILE":
+        return False
+    _appliquer_correctifs(rec, octets_secteur)
+    pos = struct.unpack_from("<H", rec, 0x14)[0]
+    while pos + 8 <= len(rec):
+        typ, long_attr = struct.unpack_from("<II", rec, pos)
+        if typ == 0xFFFFFFFF or long_attr == 0:
+            break
+        if typ == 0x70 and rec[pos + 8] == 0:
+            off = struct.unpack_from("<H", rec, pos + 0x14)[0]
+            drapeaux = struct.unpack_from("<H", rec, pos + off + 0x0A)[0]
+            return bool(drapeaux & 0x0001)
+        pos += long_attr
+    return False

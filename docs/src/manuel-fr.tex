@@ -269,6 +269,18 @@ débranché. \\
 \caption{Cible vue à travers un boîtier USB en secteurs de 4096 octets : clonage refusé.}\label{fig:4k}
 \end{figure}
 
+\section{Plan B : les outils libres de référence}
+
+Calque s'appuie sur les mêmes précautions que les outils libres éprouvés : comme \textbf{ntfsclone} et
+\textbf{partclone}, il signale un volume NTFS marqué « à vérifier » ; sous Linux, s'ils sont installés,
+\textbf{sgdisk~-v} (gdisk) et \textbf{ntfsfix~-n} (ntfs-3g) contrôlent le clone à la fin, sans rien
+modifier, et le message de fin donne leur verdict.
+
+Si Calque refuse ou échoue et que vous ne pouvez pas lever le blocage, \textbf{Rescuezilla} (interface
+graphique de Clonezilla, gratuite et libre) sait aussi cloner un disque Windows depuis une clé USB.
+Les mêmes règles s'appliquent : Windows complètement éteint, pas de boîtier qui change la taille des
+secteurs, ancien disque débranché au premier démarrage.
+
 \section{Ce que fait Calque, exactement}
 
 \begin{enumerate}

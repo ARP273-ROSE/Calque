@@ -298,6 +298,16 @@ TEXTES: dict[str, dict[str, str]] = {
               "depuis une clé Linux.",
         "en": "Windows refuses to take the snapshot of {nom} (code {detail}). Check that the “Volume Shadow Copy” "
               "service is not disabled and that {nom} has free space; otherwise, clone from a Linux stick."},
+    "plan.ntfs_sale": {
+        "fr": "Windows a marqué {nom} « à vérifier » (erreurs du système de fichiers). Copier ces erreurs ne les "
+              "répare pas : lancez d'abord « chkdsk {nom} /f » dans un terminal administrateur, redémarrez, puis "
+              "revenez ici. (Les outils libres ntfsclone et partclone refusent eux aussi un tel volume.)",
+        "en": "Windows flagged {nom} as “needs checking” (file system errors). Copying those errors does not fix "
+              "them: first run “chkdsk {nom} /f” in an administrator terminal, restart, then come back. (The free "
+              "tools ntfsclone and partclone also refuse such a volume.)"},
+    "fin.controles": {"fr": "<p>Contrôle par des outils libres : {resultat}</p>", "en": "<p>Check by free tools: {resultat}</p>"},
+    "fin.controle_ok": {"fr": "tout est bon", "en": "all good"},
+    "fin.controle_ko": {"fr": "<b style='color:#A33'>problème signalé par {outil}</b>", "en": "<b style='color:#A33'>problem reported by {outil}</b>"},
     "apres.disque_actuel": {"fr": "Windows a démarré sur : {disque}. Vérifiez que c'est bien le NOUVEAU disque.",
                             "en": "Windows started from: {disque}. Check that it is the NEW disk."},
     # ---- après le clonage

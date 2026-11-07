@@ -262,6 +262,17 @@ entry) as the first boot device; make sure the old one is unplugged. \\
 \caption{Target seen through a USB enclosure with 4096-byte sectors: cloning refused.}\label{fig:4k}
 \end{figure}
 
+\section{Plan B: the reference free tools}
+
+Calque relies on the same precautions as proven free tools: like \textbf{ntfsclone} and
+\textbf{partclone}, it flags an NTFS volume marked “needs checking”; on Linux, when installed,
+\textbf{sgdisk~-v} (gdisk) and \textbf{ntfsfix~-n} (ntfs-3g) check the clone at the end without changing
+anything, and the final message gives their verdict.
+
+If Calque refuses or fails and you cannot lift the block, \textbf{Rescuezilla} (the free, open-source
+graphical front end of Clonezilla) can also clone a Windows disk from a USB stick. The same rules apply:
+Windows fully shut down, no enclosure that changes the sector size, old disk unplugged on first start.
+
 \section{What Calque does, exactly}
 
 \begin{enumerate}

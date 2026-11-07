@@ -106,11 +106,21 @@ def preparer_plan(source: D.Disque, cible: D.Disque, deplacer_fin: bool = True,
         except T.ErreurTable as e:
             raise ErreurClonage(e.cle, **e.champs) from e
         travaux = []
+        a_reparer: list[str] = []
         estimation = 0
         for p in ts.triees():
             premier = dev.lire(p.debut * ts.taille_secteur, 512)
             t = Travail(p, p.debut, ntfs.nature(premier), False)
             travaux.append(t)
+            if t.systeme_fichiers == "ntfs":
+                try:
+                    vue = Fenetre(dev, p.debut * ts.taille_secteur, p.secteurs * ts.taille_secteur)
+                    if ntfs.volume_a_reparer(vue.lire):
+                        nom = next((v.nom for v in source.volumes
+                                    if v.debut == p.debut * ts.taille_secteur and v.nom), "") or f"#{p.numero}"
+                        a_reparer.append(nom)
+                except Exception:
+                    pass
             # estimation de ce qui sera copié, lue sur le disque tel quel (le
             # cliché, pris au moment du clonage, donnera presque la même chose)
             try:
@@ -161,6 +171,8 @@ def preparer_plan(source: D.Disque, cible: D.Disque, deplacer_fin: bool = True,
                     avert.append(("plan.place_cliche", {"nom": v.nom, "libre": D.octets_lisibles(v.libre)}))
     elif any(t.systeme_fichiers == "ntfs" for t in travaux):
         avert.append(("plan.demarrage_rapide", {}))
+    for nom in a_reparer:
+        avert.append(("plan.ntfs_sale", {"nom": nom}))
     if source.sante and source.sante != "Healthy":
         avert.append(("plan.sante", {"etat": source.sante}))
     if cible.lecture_seule:
@@ -201,6 +213,7 @@ class Bilan:
     secteurs_illisibles: int = 0
     reconnexions: int = 0
     repris_a: int = 0           # octets déjà faits avant la reprise
+    controles: list = field(default_factory=list)   # (outil libre, ok, sortie)
 
 
 class Progression:
@@ -608,9 +621,42 @@ def cloner(plan: Plan, rappel=None, annulation: threading.Event | None = None,
         dev_src.fermer()
         _empecher_veille(False)
     D.rafraichir(plan.cible)
+    bilan.controles = controler_avec_outils_libres(plan)
     bilan.duree = time.monotonic() - t0
     journal("fini")
     return bilan
+
+
+def controler_avec_outils_libres(plan: Plan) -> list[tuple[str, bool, str]]:
+    """Seconde opinion d'outils libres éprouvés, s'ils sont installés (Linux) :
+    `sgdisk -v` (gdisk) sur la table écrite, `ntfsfix -n` (ntfs-3g, sans rien
+    modifier) sur chaque volume NTFS du clone. Rend [(outil, ok, sortie)]."""
+    import shutil
+    import subprocess
+    resultats = []
+    if sys.platform == "win32":
+        return resultats
+    if shutil.which("sgdisk") and plan.table_cible.style == "gpt":
+        r = subprocess.run(["sgdisk", "-v", plan.cible.chemin], capture_output=True, text=True, timeout=120)
+        resultats.append(("sgdisk -v", "No problems found" in r.stdout, r.stdout.strip()[-400:]))
+    if shutil.which("ntfsfix") and plan.cible.chemin.startswith("/dev/"):
+        for t in plan.travaux:
+            if t.systeme_fichiers != "ntfs":
+                continue
+            part = _peripherique_partition(plan.cible.chemin, t.partition.numero)
+            if not part:
+                continue
+            r = subprocess.run(["ntfsfix", "-n", part], capture_output=True, text=True, timeout=300)
+            resultats.append((f"ntfsfix -n {part}", r.returncode == 0, (r.stdout + r.stderr).strip()[-400:]))
+    return resultats
+
+
+def _peripherique_partition(disque: str, numero: int) -> str | None:
+    """/dev/sdb + 3 → /dev/sdb3 ; /dev/nvme0n1 + 3 → /dev/nvme0n1p3."""
+    for nom in (f"{disque}{numero}", f"{disque}p{numero}"):
+        if os.path.exists(nom):
+            return nom
+    return None
 
 
 # ------------------------------------------------------------ après le clonage (Windows)
