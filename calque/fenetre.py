@@ -13,6 +13,10 @@ from . import disques as D
 from . import style
 from .i18n import duree, langue, message, tr
 
+# alertes mises en avant (fond orangé) ; les autres sont « à savoir »
+IMPORTANTS = {"plan.cible_non_vide", "plan.cible_occupee", "plan.batterie", "plan.place_cliche", "plan.sante",
+              "plan.demarrage_rapide", "plan.volume_sans_cliche"}
+
 COULEURS = {"efi": "#C07A1E", "msr": "#9AA7B1", "donnees": "#1D4E73", "recuperation": "#5E8C61",
             "linux": "#7B5EA7", "fat32": "#C07A1E", "autre": "#6B7884"}
 
@@ -418,8 +422,9 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
         ss = plan.table_source.taille_secteur
         morceaux = []
         if plan.bloquants:
-            morceaux.append(f"<p style='color:#A33'><b>{tr('plan.bloque')}</b></p><ul>" + "".join(
-                f"<li>{_html(tr(c, **k))}</li>" for c, k in plan.bloquants) + "</ul>")
+            morceaux.append("".join(
+                f"<p style='background:#F8E6E3; color:#A33A2E; padding:4px'><b>{tr('niveau.bloque')}</b> — "
+                f"{_html(tr(c, **k))}</p>" for c, k in plan.bloquants))
         else:
             morceaux.append("<p>" + _html(tr("plan.resume", n=len(plan.travaux), style=plan.table_source.style.upper(),
                                               cible=plan.cible.libelle())) + "</p>")
@@ -437,9 +442,15 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
                 bas, haut = plan.duree_estimee(self.option_verifier.isChecked(), self._debit_max())
                 morceaux.append("<p><b>" + _html(tr("plan.estimation", octets=D.octets_lisibles(plan.estimation),
                                                      min=duree(bas, True), max=duree(haut * 1.0001 + 300, True))) + "</b></p>")
-        if plan.avertissements:
-            morceaux.append(f"<p><b>{tr('plan.attention')}</b></p><ul>" + "".join(
-                f"<li>{_html(tr(c, **k))}</li>" for c, k in plan.avertissements) + "</ul>")
+        importants = [(c, k) for c, k in plan.avertissements if c in IMPORTANTS]
+        infos = [(c, k) for c, k in plan.avertissements if c not in IMPORTANTS]
+        if importants:
+            morceaux.append("".join(
+                f"<p style='background:#FBF1E2; color:#7A4A0C; padding:4px'><b>{tr('niveau.important')}</b> — "
+                f"{_html(tr(c, **k))}</p>" for c, k in importants))
+        if infos:
+            morceaux.append(f"<p><b>{tr('niveau.info')}</b></p><ul>" + "".join(
+                f"<li>{_html(tr(c, **k))}</li>" for c, k in infos) + "</ul>")
         return "".join(morceaux)
 
     def _majeur_bouton(self, *_):
@@ -582,10 +593,14 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
         try:
             e = clonage.etat_c()
             if int(e["maximum"]) <= int(e["taille"]) + 1024 * 1024:
-                self.etat_c.setText(tr("apres.deja"))
+                texte = tr("apres.deja")
             else:
-                self.etat_c.setText(tr("apres.etat", taille=D.octets_lisibles(int(e["taille"])),
-                                       maximum=D.octets_lisibles(int(e["maximum"]))))
+                texte = tr("apres.etat", taille=D.octets_lisibles(int(e["taille"])),
+                           maximum=D.octets_lisibles(int(e["maximum"])))
+            disque = next((d for d in self.disques if d.numero == int(e.get("disque", -1))), None)
+            if disque:
+                texte = _html(tr("apres.disque_actuel", disque=disque.libelle())) + "<br>" + texte
+            self.etat_c.setText(texte)
         except Exception:
             self.etat_c.setText(tr("apres.etat_inconnu"))
 

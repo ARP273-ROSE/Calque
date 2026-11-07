@@ -140,10 +140,11 @@ TEXTES: dict[str, dict[str, str]] = {
                       "en": "{etape}: {fait} of {total} — {debit}/s — {reste} left"},
     "dlg.confirmer_titre": {"fr": "Dernière vérification", "en": "Last check"},
     "dlg.confirmer": {
-        "fr": "Copier <b>{source}</b><br>sur <b>{cible}</b> ?<br><br>Tout ce que contient aujourd'hui "
-              "le disque cible sera <b>définitivement effacé</b>.",
-        "en": "Copy <b>{source}</b><br>to <b>{cible}</b>?<br><br>Everything the target disk holds today "
-              "will be <b>permanently erased</b>."},
+        "fr": "Copier <b>{source}</b><br>sur <b>{cible}</b> ?<br><br><b>Point de non-retour :</b> tout ce que "
+              "contient aujourd'hui le disque cible sera <b>définitivement effacé</b>. Le disque source, lui, "
+              "ne sera pas touché.",
+        "en": "Copy <b>{source}</b><br>to <b>{cible}</b>?<br><br><b>Point of no return:</b> everything the "
+              "target disk holds today will be <b>permanently erased</b>. The source disk will not be touched."},
     "dlg.effacer": {"fr": "Effacer et cloner", "en": "Erase and clone"},
     "dlg.quitter_en_cours": {"fr": "Un clonage est en cours. L'interrompre ? Le disque cible restera vide.",
                              "en": "Cloning is in progress. Stop it? The target disk will be left empty."},
@@ -157,14 +158,22 @@ TEXTES: dict[str, dict[str, str]] = {
               "<li>Mettez le nouveau disque à la place de l'ancien (ou débranchez l'ancien). "
               "<b>Ne démarrez pas avec les deux branchés</b> : ils portent les mêmes identifiants.</li>"
               "<li>Démarrez ; Windows s'ouvre comme avant.</li>"
-              "<li>Relancez Calque, onglet <i>Après le clonage</i> : <b>Agrandir C:</b>.</li></ol>",
+              "<li>Relancez Calque, onglet <i>Après le clonage</i> : <b>Agrandir C:</b>.</li></ol>"
+              "<p>Si le PC ne démarre pas : au démarrage, entrez dans le BIOS (touche Suppr ou F2) et choisissez "
+              "« Windows Boot Manager » du nouveau disque en premier.</p>"
+              "<p><b>Gardez l'ancien disque intact quelques jours</b>, rangé : c'est votre copie de secours tant que "
+              "vous n'avez pas vérifié que tout marche sur le nouveau.</p>",
         "en": "<p>{copie} copied{verifie} in {duree}.</p>{remarques}"
               "<p><b>What next:</b></p><ol>"
               "<li>Shut the computer down.</li>"
               "<li>Put the new disk in place of the old one (or unplug the old one). "
               "<b>Do not start with both connected</b>: they carry the same identifiers.</li>"
               "<li>Start; Windows opens as before.</li>"
-              "<li>Run Calque again, <i>After cloning</i> tab: <b>Extend C:</b>.</li></ol>"},
+              "<li>Run Calque again, <i>After cloning</i> tab: <b>Extend C:</b>.</li></ol>"
+              "<p>If the PC does not start: at power-on, enter the BIOS (Del or F2 key) and put the new disk's "
+              "“Windows Boot Manager” first.</p>"
+              "<p><b>Keep the old disk untouched for a few days</b>, put away: it is your safety copy until you "
+              "have checked that everything works on the new one.</p>"},
     "fin.verifie": {"fr": " et vérifiés", "en": " and checked"},
     "fin.annule": {"fr": "Clonage interrompu. Le disque cible n'a pas encore de table : rien ne démarrera dessus par erreur. "
                          "« Reprendre » continuera là où il s'est arrêté.",
@@ -236,14 +245,61 @@ TEXTES: dict[str, dict[str, str]] = {
         "fr": "<p><b>Avant de lancer :</b></p><ul>"
               "<li>vos documents importants sont sauvegardés ailleurs ;</li>"
               "<li>portable : branché sur le secteur ;</li>"
-              "<li>boîtier USB : posé à plat, à l'air, sur un port à l'arrière du PC.</li></ul>"
-              "<p>La mise en veille de Windows est bloquée pendant la copie.</p>",
+              "<li>boîtier USB : posé à plat, à l'air, sur un port à l'arrière du PC ;</li>"
+              "<li>Windows Update : suspendez les mises à jour (Paramètres → Windows Update → Suspendre), "
+              "un redémarrage automatique interromprait la copie.</li></ul>"
+              "<p>La mise en veille de Windows est bloquée pendant la copie. Ne débranchez rien tant que la "
+              "barre n'est pas au bout.</p>",
         "en": "<p><b>Before starting:</b></p><ul>"
               "<li>your important documents are backed up elsewhere;</li>"
               "<li>laptop: plugged into the mains;</li>"
-              "<li>USB enclosure: lying flat, in the open air, on a port at the back of the PC.</li></ul>"
-              "<p>Windows sleep is blocked during the copy.</p>"},
+              "<li>USB enclosure: lying flat, in the open air, on a port at the back of the PC;</li>"
+              "<li>Windows Update: pause updates (Settings → Windows Update → Pause), an automatic restart "
+              "would interrupt the copy.</li></ul>"
+              "<p>Windows sleep is blocked during the copy. Do not unplug anything until the bar reaches the "
+              "end.</p>"},
     "dlg.reprendre_maintenant": {"fr": "J'ai rebranché : reprendre", "en": "Plugged back in: resume"},
+    # ---- alertes (recherches : causes connues d'échec d'un clonage)
+    "niveau.bloque": {"fr": "IMPOSSIBLE", "en": "NOT POSSIBLE"},
+    "niveau.important": {"fr": "ATTENTION", "en": "WARNING"},
+    "niveau.info": {"fr": "À SAVOIR", "en": "GOOD TO KNOW"},
+    "plan.cible_non_vide": {
+        "fr": "Le disque cible n'est PAS vide : il contient {n} partition(s), {taille} en tout. Tout sera effacé, "
+              "sans retour possible. Vérifiez que c'est bien le nouveau disque et que rien dessus ne vous manquera.",
+        "en": "The target disk is NOT empty: it holds {n} partition(s), {taille} in all. Everything will be erased, "
+              "with no way back. Check that it is really the new disk and that you will not miss anything on it."},
+    "plan.batterie": {"fr": "L'ordinateur est sur batterie. Branchez-le sur le secteur : une coupure en pleine copie oblige à reprendre.",
+                      "en": "The computer is on battery. Plug it into the mains: a power cut mid-copy means resuming."},
+    "plan.place_cliche": {
+        "fr": "Il ne reste que {libre} de libre sur {nom}. Le cliché de Windows y garde ce qui change pendant la copie ; "
+              "s'il manque de place, Windows le supprime et il faut tout recommencer. Libérez de la place, et évitez "
+              "les gros téléchargements pendant le clonage.",
+        "en": "Only {libre} is free on {nom}. The Windows snapshot keeps there what changes during the copy; if it runs "
+              "out of space, Windows deletes it and everything has to start again. Free some space, and avoid large "
+              "downloads during cloning."},
+    "plan.place_cliche_bloque": {
+        "fr": "Trop peu de place libre sur {nom} ({libre}) pour le cliché de Windows. Libérez au moins quelques Go "
+              "(Nettoyage de disque, corbeille, téléchargements), puis « Actualiser la liste ».",
+        "en": "Too little free space on {nom} ({libre}) for the Windows snapshot. Free at least a few GB (Disk Cleanup, "
+              "recycle bin, downloads), then “Refresh the list”."},
+    "plan.demarrage_rapide": {
+        "fr": "Windows doit avoir été éteint COMPLÈTEMENT avant de démarrer sur la clé Linux (démarrage rapide désactivé, "
+              "ou Maj enfoncée en cliquant sur Arrêter). Sinon la copie emporte une session en veille prolongée.",
+        "en": "Windows must have been shut down COMPLETELY before starting from the Linux stick (fast startup off, or "
+              "Shift held while clicking Shut down). Otherwise the copy carries a hibernated session."},
+    "clone.cliche_disparu": {
+        "fr": "Windows a supprimé le cliché pendant la copie (le plus souvent : plus assez de place libre sur C:). "
+              "La copie ne peut pas être reprise. Libérez de la place sur C:, puis recommencez de zéro.",
+        "en": "Windows deleted the snapshot during the copy (most often: not enough free space on C:). The copy cannot "
+              "be resumed. Free some space on C:, then start again from scratch."},
+    "clone.cliche_refuse": {
+        "fr": "Windows refuse de prendre le cliché de {nom} (code {detail}). Vérifiez que le service « Cliché "
+              "instantané des volumes » n'est pas désactivé et qu'il reste de la place sur {nom} ; sinon, clonez "
+              "depuis une clé Linux.",
+        "en": "Windows refuses to take the snapshot of {nom} (code {detail}). Check that the “Volume Shadow Copy” "
+              "service is not disabled and that {nom} has free space; otherwise, clone from a Linux stick."},
+    "apres.disque_actuel": {"fr": "Windows a démarré sur : {disque}. Vérifiez que c'est bien le NOUVEAU disque.",
+                            "en": "Windows started from: {disque}. Check that it is the NEW disk."},
     # ---- après le clonage
     "apres.intro": {
         "fr": "<p>À faire <b>une fois démarré sur le nouveau disque</b>.</p>"

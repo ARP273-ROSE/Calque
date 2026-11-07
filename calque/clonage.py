@@ -136,6 +136,31 @@ def preparer_plan(source: D.Disque, cible: D.Disque, deplacer_fin: bool = True,
             t.nouveau_debut = nouveaux[t.partition.numero]
             t.deplacee = t.nouveau_debut != t.partition.debut
 
+    # la cible contient-elle déjà quelque chose ? (le dire en clair : c'est effacé)
+    try:
+        dc = ouvrir(cible.chemin, False, cible.taille_secteur)
+        try:
+            tcible = T.lire(dc.lire, cible.taille or dc.taille, cible.taille_secteur)
+            if tcible.partitions:
+                avert.append(("plan.cible_non_vide", {
+                    "n": len(tcible.partitions),
+                    "taille": D.octets_lisibles(sum(p.secteurs for p in tcible.partitions) * tcible.taille_secteur)}))
+        finally:
+            dc.fermer()
+    except Exception:
+        pass
+    if D.sur_batterie():
+        avert.append(("plan.batterie", {}))
+    import sys as _sys
+    if _sys.platform == "win32" and source.numero is not None:
+        for v in source.volumes:
+            if v.nom and v.libre is not None and (v.systeme_fichiers or "").upper() == "NTFS":
+                if v.libre < 1_000_000_000:
+                    bloquants.append(("plan.place_cliche_bloque", {"nom": v.nom, "libre": D.octets_lisibles(v.libre)}))
+                elif v.libre < 5_000_000_000:
+                    avert.append(("plan.place_cliche", {"nom": v.nom, "libre": D.octets_lisibles(v.libre)}))
+    elif any(t.systeme_fichiers == "ntfs" for t in travaux):
+        avert.append(("plan.demarrage_rapide", {}))
     if source.sante and source.sante != "Healthy":
         avert.append(("plan.sante", {"etat": source.sante}))
     if cible.lecture_seule:
@@ -379,8 +404,11 @@ def lire_source(lecteur, position: int, taille: int, ss: int, tolerer: bool, ill
     """
     try:
         return lecteur.lire(position, taille)
-    except ErreurAcces:
-        pass
+    except ErreurAcces as e:
+        # un cliché qui disparaît (Windows l'a supprimé faute de place) n'est
+        # pas un disque abîmé : il faut le dire autrement
+        if "ShadowCopy" in str(getattr(lecteur, "chemin", "")) and e.code in DECONNEXIONS:
+            raise ErreurClonage("clone.cliche_disparu") from e
     morceaux = []
     pas = 64 * 1024 if taille > 64 * 1024 else ss
     for p in range(position, position + taille, pas):

@@ -27,6 +27,7 @@ class Volume:
     chemin: str = ""            # \\?\Volume{…}\ (Windows)
     systeme_fichiers: str = ""
     lecture_seule: bool = False
+    libre: int | None = None    # octets libres (Windows)
 
 
 @dataclass
@@ -100,7 +101,7 @@ def powershell(script: str, delai: float = 120) -> str:
 SCRIPT_INVENTAIRE = r"""
 $d = @(Get-Disk | Select-Object Number,FriendlyName,SerialNumber,Size,BusType,PartitionStyle,IsBoot,IsSystem,IsOffline,IsReadOnly,LogicalSectorSize,PhysicalSectorSize)
 $p = @(Get-Partition | Select-Object DiskNumber,PartitionNumber,Offset,Size,@{n='Lettre';e={[string]$_.DriveLetter}},AccessPaths)
-$v = @(Get-Volume | Select-Object UniqueId,FileSystem)
+$v = @(Get-Volume | Select-Object UniqueId,FileSystem,SizeRemaining)
 $h = @(); try { $h = @(Get-PhysicalDisk | Select-Object DeviceId,@{n='Sante';e={[string]$_.HealthStatus}}) } catch {}
 @{disques=$d; partitions=$p; volumes=$v; sante=$h} | ConvertTo-Json -Depth 4 -Compress
 """
@@ -128,6 +129,7 @@ def analyser_inventaire_windows(texte: str) -> list[Disque]:
         return x if isinstance(x, list) else ([x] if x else [])
 
     fs = {v.get("UniqueId"): (v.get("FileSystem") or "") for v in liste(donnees.get("volumes"))}
+    libres = {v.get("UniqueId"): v.get("SizeRemaining") for v in liste(donnees.get("volumes"))}
     sante = {str(h.get("DeviceId")): _sante(h.get("Sante")) for h in liste(donnees.get("sante"))}
     disques = []
     for d in liste(donnees.get("disques")):
@@ -154,7 +156,8 @@ def analyser_inventaire_windows(texte: str) -> list[Disque]:
                 continue
             disque.volumes.append(Volume(
                 debut=int(p["Offset"]), taille=int(p["Size"]),
-                nom=f"{lettre}:" if lettre else "", chemin=guid, systeme_fichiers=fs.get(guid, "")))
+                nom=f"{lettre}:" if lettre else "", chemin=guid, systeme_fichiers=fs.get(guid, ""),
+                libre=int(libres[guid]) if libres.get(guid) is not None else None))
         disques.append(disque)
     return sorted(disques, key=lambda d: d.numero)
 
@@ -193,16 +196,28 @@ class ClicheVSS:
         self.ident, self.peripherique = ident, peripherique
 
 
+CODES_VSS = {1: "accès refusé / access denied", 2: "argument invalide", 3: "volume introuvable / not found",
+             4: "volume non pris en charge / not supported", 5: "contexte non pris en charge",
+             6: "place insuffisante / insufficient storage", 7: "volume occupé / in use",
+             8: "trop de clichés / too many shadow copies", 9: "autre opération en cours / another operation",
+             10: "refusé par le fournisseur", 11: "fournisseur absent", 12: "panne du fournisseur"}
+
+
 def creer_cliche(volume: Volume) -> ClicheVSS:
     cible = volume.chemin or (volume.nom + "\\")
     cible = cible.replace("'", "''")
     sortie = powershell(f"""
 $r = Invoke-CimMethod -ClassName Win32_ShadowCopy -MethodName Create -Arguments @{{Volume='{cible}'; Context='ClientAccessible'}}
-if ($r.ReturnValue -ne 0) {{ throw ('Win32_ShadowCopy.Create : code ' + $r.ReturnValue) }}
+if ($r.ReturnValue -ne 0) {{ Write-Output ('{{"code":' + $r.ReturnValue + '}}'); exit 0 }}
 $s = Get-CimInstance Win32_ShadowCopy | Where-Object {{ $_.ID -eq $r.ShadowID }}
 @{{id=$s.ID; peripherique=$s.DeviceObject}} | ConvertTo-Json -Compress
 """, delai=600)
     d = json.loads(sortie)
+    if "code" in d:
+        from .clonage import ErreurClonage
+        code = int(d["code"])
+        raise ErreurClonage("clone.cliche_refuse", nom=volume.nom or volume.chemin,
+                            detail=f"{code} — {CODES_VSS.get(code, '?')}")
     return ClicheVSS(d["id"], d["peripherique"])
 
 
@@ -233,6 +248,31 @@ def bitlocker_windows() -> set[str]:
         return {str(x)[:2].upper() for x in v if x}
     except Exception:
         return set()
+
+
+def sur_batterie() -> bool:
+    """Portable débranché du secteur (Windows : GetSystemPowerStatus ; Linux : /sys)."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            class Etat(ctypes.Structure):
+                _fields_ = [("ACLineStatus", ctypes.c_ubyte), ("BatteryFlag", ctypes.c_ubyte),
+                            ("BatteryLifePercent", ctypes.c_ubyte), ("SystemStatusFlag", ctypes.c_ubyte),
+                            ("BatteryLifeTime", ctypes.c_ulong), ("BatteryFullLifeTime", ctypes.c_ulong)]
+            e = Etat()
+            if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(e)):
+                return e.ACLineStatus == 0
+        except Exception:
+            pass
+        return False
+    try:
+        from pathlib import Path
+        secteurs = [p for p in Path("/sys/class/power_supply").iterdir()
+                    if (p / "type").read_text().strip() == "Mains"]
+        return bool(secteurs) and all((p / "online").read_text().strip() == "0" for p in secteurs)
+    except Exception:
+        return False
 
 
 def est_administrateur() -> bool:
@@ -366,7 +406,12 @@ def lecteurs_figes(source: Disque, dev_source, parts: list[tuple[int, int, int]]
     try:
         for numero, debut, taille in parts:
             vol = next((v for v in source.volumes if v.debut == debut), None)
-            if sys.platform == "win32" and vol is not None and source.numero is not None:
+            # seuls les volumes EN SERVICE (avec une lettre) et que VSS sait figer
+            # (NTFS, ReFS) passent par un cliché ; EFI (FAT32) et récupération ne
+            # changent pas pendant la copie et VSS les refuse (code 4)
+            figeable = (vol is not None and bool(vol.nom)
+                        and (vol.systeme_fichiers or "").upper() in ("NTFS", "REFS"))
+            if sys.platform == "win32" and figeable and source.numero is not None:
                 if numero in existants:
                     ident, peripherique = existants[numero]
                     if not cliche_existe(ident):
