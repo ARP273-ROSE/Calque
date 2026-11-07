@@ -89,7 +89,9 @@ def test_clonage_a_chaud_vers_vhdx(vhd):
     assert any(v.nom == f"{LETTRE}:" for v in source.volumes), source.volumes
     plan = clonage.preparer_plan(source, cible)
     assert plan.possible, plan.bloquants
-    assert [t.partition.nature for t in plan.travaux] == ["efi", "msr", "donnees", "recuperation"]
+    natures = [t.partition.nature for t in plan.travaux]
+    # diskpart « convert gpt » pose déjà une partition réservée (MSR) en tête
+    assert "efi" in natures and natures[-2:] == ["donnees", "recuperation"], natures
     assert plan.travaux[-1].deplacee
 
     # on écrit sur le volume source PENDANT le clonage : le cliché doit l'ignorer
@@ -128,9 +130,9 @@ def test_clonage_a_chaud_vers_vhdx(vhd):
     parts = json.loads(ps(f"@(Get-Partition -DiskNumber {n_cib} | Select-Object PartitionNumber,Offset,Size,GptType) "
                           "| ConvertTo-Json -Compress"))
     parts = sorted(parts, key=lambda p: p["Offset"])
-    assert len(parts) == 4
-    assert parts[3]["GptType"].strip("{}").lower() == TYPE_RECUP
-    assert parts[3]["Offset"] + parts[3]["Size"] > 6000 * MIO          # récupération en fin de disque
+    assert len(parts) == len(plan.travaux)
+    assert parts[-1]["GptType"].strip("{}").lower() == TYPE_RECUP
+    assert parts[-1]["Offset"] + parts[-1]["Size"] > 6000 * MIO          # récupération en fin de disque
     num_c = next(p["PartitionNumber"] for p in parts if p["Size"] == 2200 * MIO)
     lettre = ps(f"Add-PartitionAccessPath -DiskNumber {n_cib} -PartitionNumber {num_c} -AssignDriveLetter; "
                 f"(Get-Partition -DiskNumber {n_cib} -PartitionNumber {num_c}).DriveLetter").strip()
