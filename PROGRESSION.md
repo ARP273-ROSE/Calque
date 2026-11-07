@@ -9,7 +9,7 @@ Dépôt local seulement (branche `main`, un commit). Pas encore de dépôt GitHu
   (`calque/ntfs.py`), plan + copie + relecture + table écrite en dernier (`calque/clonage.py`).
 - Accès disque : POSIX (Linux, fichiers image) et Windows sans tampon (`calque/peripherique.py`) ;
   inventaire Get-Disk / lsblk, clichés VSS, préparation de la cible par Clear-Disk (`calque/disques.py`).
-- 41 tests verts sous Linux, dont des clonages de bout en bout sur de VRAIS disques image fabriqués par
+- 50 tests verts sous Linux (dont reconnexion, reprise, secteurs illisibles, copie bridée), dont des clonages de bout en bout sur de VRAIS disques image fabriqués par
   sgdisk/mkntfs/ntfscp (GPT et MBR façon Windows) : fichiers relus à l'identique par ntfscat, `sgdisk -v`
   sans problème, identifiants conservés, récupération en fin de disque et alignée, secteurs cachés
   corrigés, annulation qui laisse la cible sans table, refus 4K / cible trop petite.

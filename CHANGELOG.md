@@ -11,6 +11,11 @@
   réparer l'environnement de récupération.
 - Refus expliqués : secteurs de 4096 octets présentés par un boîtier USB, BitLocker, disque dynamique,
   cible trop petite, source montée (Linux).
+- Boîtier USB qui décroche : attente et reconnexion automatiques (même sous un autre numéro) ; sinon arrêt
+  propre et bouton « Reprendre », qui repart du même cliché là où la copie s'était arrêtée.
+- Copie bridée pour ménager un boîtier USB qui chauffe ; mise en veille de Windows bloquée pendant la copie.
+- Secteurs illisibles sur la source : avertissement, puis « Continuer malgré tout » (remplis de zéros, comptés).
+- Plan avec quantité à copier et durée estimée ; état de santé du disque source signalé.
 
 **English**
 - First version. Clones a GPT or MBR disk to a disk at least as large, identifiers kept (the clone boots
@@ -21,3 +26,8 @@
   environment.
 - Explained refusals: 4096-byte sectors presented by a USB enclosure, BitLocker, dynamic disk, target too
   small, mounted source (Linux).
+- USB enclosure dropping out: automatic wait and reconnection (even under a new number); otherwise a clean
+  stop and a “Resume” button that restarts from the same snapshot where the copy stopped.
+- Capped copy speed to spare a USB enclosure that heats up; Windows sleep blocked during the copy.
+- Unreadable sectors on the source: warning, then “Continue anyway” (filled with zeros, counted).
+- Plan with the amount to copy and an estimated time; source disk health reported.

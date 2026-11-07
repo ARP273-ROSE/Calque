@@ -67,6 +67,7 @@ def main():
     from calque import fenetre
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
+        os.environ["CALQUE_DONNEES"] = str(tmp / "donnees")
         src, cib, cib4k = tmp / "source.img", tmp / "cible.img", tmp / "cible4k.img"
         volumes = disque_fictif(src, 500_107_862_016, True)
         disque_fictif(cib, 1_000_204_886_016, False)
@@ -82,11 +83,27 @@ def main():
             ]
             D.lister = lambda liste=liste: list(liste)
             w = fenetre.FenetrePrincipale()
-            w.resize(940, 760)
+            w.resize(960, 900)
             w.show()
             attendre(app, lambda: w.choix_cible.count() > 0)
             attendre(app, lambda: w.plan is not None)
+            # disque fictif sans vrai NTFS : on montre l'estimation d'un C: rempli à 148 Go
+            w.plan.estimation = 148 * GO
+            w._majeur_texte_plan()
+            app.processEvents()
             w.grab().save(str(ICI / f"capture_plan-{lg}.png"))
+            # clonage interrompu (boîtier décroché) : bandeau « Reprendre »
+            from calque import clonage
+            j = clonage.Journal()
+            j.d = {"version": 1, "signature": w.plan.signature(), "source": w.plan.source.empreinte(),
+                   "cible": w.plan.cible.empreinte(), "blocs_faits": int(0.41 * 148 * GO / clonage.BLOC),
+                   "total": 148 * GO, "date": "2026-11-08 21:14"}
+            j.ecrire()
+            w._majeur_bandeau()
+            app.processEvents()
+            w.grab().save(str(ICI / f"capture_reprise-{lg}.png"))
+            j.effacer()
+            w._majeur_bandeau()
             w.confirmation.setChecked(True)
             # en cours : on montre la progression telle que l'affiche le clonage
             w.en_cours = True

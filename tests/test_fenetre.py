@@ -70,3 +70,33 @@ def test_plan_puis_clonage(app, tmp_path, monkeypatch):
     assert w.barre.value() == 1000
     assert w.etat.text() == "Terminé."
     w.close()
+
+
+@pytest.mark.skipif(not fabrique.outils_presents(), reason="outils de fabrication absents")
+def test_bandeau_de_reprise(app, tmp_path, monkeypatch):
+    import threading
+
+    from calque import clonage, disques
+    from calque.fenetre import FenetrePrincipale
+    monkeypatch.setattr(disques, "lister", lambda: [])
+    monkeypatch.setenv("CALQUE_DONNEES", str(tmp_path / "donnees"))
+    monkeypatch.setattr(clonage.Journal, "PERIODE", 2)
+    src, _ = fabrique.disque_gpt(tmp_path, fichiers=fabrique.fichiers_temoins(n=2))
+    cible = tmp_path / "cible.img"
+    with open(cible, "wb") as f:
+        f.truncate(2000 * fabrique.MIO)
+    plan = clonage.preparer_plan(disques.disque_image(str(src)), disques.disque_image(str(cible)))
+    stop = threading.Event()
+    with pytest.raises(clonage.Annule):
+        clonage.cloner(plan, annulation=stop, rappel=lambda **k: k["fait"] > 30 * fabrique.MIO and stop.set())
+    w = FenetrePrincipale(images=[str(src), str(cible)])
+    w.show()
+    _attendre(app, lambda: w.choix_cible.count() == 2)
+    w.choix_source.setCurrentIndex(0)
+    w.choix_cible.setCurrentIndex(1)
+    assert w.bandeau.isVisible() and w.bouton_reprendre.isVisible()
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: None)
+    w._reprendre()
+    _attendre(app, lambda: not w.en_cours, 120)
+    assert w.etat.text() == "Terminé." and not w.bandeau.isVisible()
+    w.close()

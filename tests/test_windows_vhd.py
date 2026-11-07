@@ -105,12 +105,19 @@ def test_clonage_a_chaud_vers_vhdx(vhd):
     t = threading.Thread(target=ecrivain, daemon=True)
     t.start()
     etapes = []
+    arret = threading.Event()
     try:
-        bilan = clonage.cloner(plan, journal=lambda c, **k: etapes.append(c))
+        # 1re passe interrompue vers 30 % : le cliché doit être GARDÉ pour la reprise
+        with pytest.raises(clonage.Annule):
+            clonage.cloner(plan, journal=lambda c, **k: etapes.append(c), annulation=arret,
+                           rappel=lambda **k: k["etape"] == "copie" and k["fait"] > 0.3 * k["total"] and arret.set())
+        assert ps("@(Get-CimInstance Win32_ShadowCopy).Count").strip() == "1"
+        assert clonage.reprise_possible(plan)
+        bilan = clonage.cloner(plan, journal=lambda c, **k: etapes.append(c), reprendre=True)
     finally:
         stop.set()
         t.join()
-    assert "cliche" in etapes and bilan.blocs_differents == 0
+    assert etapes.count("cliche") == 1 and bilan.blocs_differents == 0 and bilan.repris_a > 0
     # cliché supprimé
     assert ps("@(Get-CimInstance Win32_ShadowCopy).Count").strip() == "0"
 

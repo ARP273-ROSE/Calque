@@ -19,9 +19,11 @@ TAMPON = 8 * 1024 * 1024
 
 
 class ErreurAcces(Exception):
-    def __init__(self, cle: str, **champs):
+    """Erreur d'accès ; `code` = errno (POSIX) ou numéro d'erreur Windows."""
+
+    def __init__(self, cle: str, code: int | None = None, **champs):
         super().__init__(f"{cle} {champs}")
-        self.cle, self.champs = cle, champs
+        self.cle, self.champs, self.code = cle, champs, code
 
 
 class Posix:
@@ -30,16 +32,20 @@ class Posix:
         try:
             self.fd = os.open(chemin, drapeaux)
         except PermissionError as e:
-            raise ErreurAcces("acces.refuse", chemin=chemin, detail=str(e)) from e
+            raise ErreurAcces("acces.refuse", code=e.errno, chemin=chemin, detail=str(e)) from e
         except OSError as e:
-            raise ErreurAcces("acces.ouverture", chemin=chemin, detail=str(e)) from e
+            raise ErreurAcces("acces.ouverture", code=e.errno, chemin=chemin, detail=str(e)) from e
         self.chemin, self.ecriture, self.taille_secteur = chemin, ecriture, taille_secteur
         self.taille = os.lseek(self.fd, 0, os.SEEK_END)
 
     def lire(self, position: int, taille: int) -> bytes:
         morceaux, fait = [], 0
         while fait < taille:
-            b = os.pread(self.fd, taille - fait, position + fait)
+            try:
+                b = os.pread(self.fd, taille - fait, position + fait)
+            except OSError as e:
+                raise ErreurAcces("acces.lecture", code=e.errno, chemin=self.chemin, position=position + fait,
+                                  detail=str(e)) from e
             if not b:
                 break
             morceaux.append(b)
@@ -52,10 +58,17 @@ class Posix:
     def ecrire(self, position: int, donnees: bytes) -> None:
         vue, fait = memoryview(donnees), 0
         while fait < len(donnees):
-            fait += os.pwrite(self.fd, vue[fait:], position + fait)
+            try:
+                fait += os.pwrite(self.fd, vue[fait:], position + fait)
+            except OSError as e:
+                raise ErreurAcces("acces.ecriture", code=e.errno, chemin=self.chemin, position=position + fait,
+                                  detail=str(e)) from e
 
     def vider(self) -> None:
-        os.fsync(self.fd)
+        try:
+            os.fsync(self.fd)
+        except OSError as e:
+            raise ErreurAcces("acces.ecriture", code=e.errno, chemin=self.chemin, detail=str(e)) from e
 
     def fermer(self) -> None:
         try:
@@ -105,7 +118,7 @@ if sys.platform == "win32":
             if h in (None, INVALID):
                 err = ctypes.get_last_error()
                 cle = "acces.refuse" if err == 5 else "acces.ouverture"
-                raise ErreurAcces(cle, chemin=chemin, detail=f"WinError {err}: {ctypes.FormatError(err)}")
+                raise ErreurAcces(cle, code=err, chemin=chemin, detail=f"WinError {err}: {ctypes.FormatError(err)}")
             self.h, self.chemin, self.ecriture = h, chemin, ecriture
             self.taille_secteur = taille_secteur
             self.tampon = _k32.VirtualAlloc(None, TAMPON, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)
@@ -119,7 +132,7 @@ if sys.platform == "win32":
             ok = _k32.DeviceIoControl(self.h, code, None, 0, sortie, sortie_taille, ctypes.byref(rendu), None)
             if not ok:
                 err = ctypes.get_last_error()
-                raise ErreurAcces("acces.ioctl", chemin=self.chemin, detail=f"WinError {err}")
+                raise ErreurAcces("acces.ioctl", code=err, chemin=self.chemin, detail=f"WinError {err}")
             return sortie.raw[:rendu.value]
 
         def _longueur(self) -> int:
@@ -138,14 +151,14 @@ if sys.platform == "win32":
         def _placer(self, position: int) -> None:
             if not _k32.SetFilePointerEx(self.h, position, None, 0):
                 err = ctypes.get_last_error()
-                raise ErreurAcces("acces.position", chemin=self.chemin, detail=f"WinError {err}")
+                raise ErreurAcces("acces.position", code=err, chemin=self.chemin, detail=f"WinError {err}")
 
         def _bloc_lu(self, position: int, taille: int) -> bytes:
             self._placer(position)
             lu = wintypes.DWORD(0)
             if not _k32.ReadFile(self.h, self.tampon, taille, ctypes.byref(lu), None):
                 err = ctypes.get_last_error()
-                raise ErreurAcces("acces.lecture", chemin=self.chemin, position=position,
+                raise ErreurAcces("acces.lecture", code=err, chemin=self.chemin, position=position,
                                   detail=f"WinError {err}: {ctypes.FormatError(err)}")
             return ctypes.string_at(self.tampon, lu.value)
 
@@ -183,15 +196,17 @@ if sys.platform == "win32":
                 ecrit = wintypes.DWORD(0)
                 if not _k32.WriteFile(self.h, self.tampon, n, ctypes.byref(ecrit), None) or ecrit.value != n:
                     err = ctypes.get_last_error()
-                    raise ErreurAcces("acces.ecriture", chemin=self.chemin, position=position + fait,
+                    raise ErreurAcces("acces.ecriture", code=err, chemin=self.chemin, position=position + fait,
                                       detail=f"WinError {err}: {ctypes.FormatError(err)}")
                 fait += n
 
         def vider(self) -> None:
-            _k32.FlushFileBuffers(self.h)
+            if not _k32.FlushFileBuffers(self.h):
+                err = ctypes.get_last_error()
+                raise ErreurAcces("acces.ecriture", code=err, chemin=self.chemin, detail=f"WinError {err}")
 
         def fermer(self) -> None:
-            if self.tampon:
+            if getattr(self, "tampon", None):
                 _k32.VirtualFree(self.tampon, 0, MEM_RELEASE)
                 self.tampon = None
             if self.h:

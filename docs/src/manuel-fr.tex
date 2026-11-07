@@ -119,8 +119,49 @@ pendant la copie ne sera pas sur le clone. Le plus simple : fermer ses documents
 Seuls les blocs \textbf{occupés} de C: sont copiés : un disque de 500~Go rempli à 150~Go ne copie
 qu'environ 150~Go. Par USB 3, comptez 5 à 15~minutes par 100~Go, autant pour la vérification.
 
-\astuce{\menu{Annuler} arrête proprement : la cible reste vide (sans table de partitions) et le
-disque source n'a pas bougé. On peut relancer quand on veut.}
+Le plan annonce aussi \textbf{combien de données seront copiées et une fourchette de durée}.
+Pendant la copie, Calque \textbf{empêche Windows de se mettre en veille} (la veille couperait la
+liaison USB).
+
+\astuce{\menu{Annuler} arrête proprement : ce qui est copié est gardé, la cible n'a pas encore de
+table de partitions (rien ne démarrera dessus par erreur) et le disque source n'a pas bougé. Le
+bouton \menu{Reprendre} continue plus tard là où on s'est arrêté.}
+
+\section{Si le boîtier USB décroche}\label{sec:decroche}
+
+Les boîtiers USB pour SSD NVMe \textbf{chauffent} quand on y écrit des dizaines de Go d'affilée ;
+certains se déconnectent alors quelques secondes, ou pour de bon. C'est la première cause de
+clonage qui s'arrête en cours de route. Calque est fait pour ça :
+
+\begin{itemize}
+\item \textbf{Ménager le boîtier USB} (case cochée d'office quand la cible est en USB) : la copie est
+      bridée à 200~Mo/s. C'est un peu plus long, mais le boîtier chauffe nettement moins.
+\item \textbf{Décrochage bref} : Calque attend le retour du disque (jusqu'à 1~min~30), le retrouve
+      même s'il a changé de numéro, et continue tout seul. Le message de fin dit combien de fois.
+\item \textbf{Décrochage définitif} : Calque s'arrête proprement et garde ce qui est fait. Suivez le
+      message : débranchez le boîtier, laissez-le refroidir une minute, rebranchez-le (port à
+      l'arrière du PC, boîtier à plat, à l'air), \menu{Actualiser la liste}, puis \menu{Reprendre}.
+\end{itemize}
+
+\capture{../capture_reprise-fr.png}
+
+Sous Windows, la reprise relit \textbf{le même cliché} qu'au début : le clone reste cohérent même si
+vous avez travaillé entre-temps. Si le cliché a disparu (redémarrage du PC, nettoyage de disque),
+Calque le dit et il faut recommencer de zéro.
+
+\astuce{\textbf{Le plus fiable de tout} : pas d'USB du tout. Si votre carte mère n'a qu'un emplacement
+M.2, une carte adaptateur PCIe → M.2 (une quinzaine d'euros) dans un emplacement PCIe libre permet de
+mettre le nouveau SSD à l'intérieur, à côté de l'ancien, le temps du clonage.}
+
+\section{Si le disque source a des zones illisibles}
+
+Un disque qui vieillit peut avoir des secteurs qu'il n'arrive plus à lire. Calque réessaie plusieurs
+fois, morceau par morceau, puis s'arrête et vous prévient : \textbf{votre disque actuel est peut-être
+en train de s'abîmer}. Commencez par copier vos documents importants ailleurs.
+
+Vous pouvez ensuite \menu{Continuer malgré tout} : les secteurs illisibles sont remplacés par des
+zéros (le reste est copié normalement, et la copie reprend où elle s'était arrêtée). Le message de fin
+indique leur nombre ; au premier démarrage sur le nouveau disque, lancez \texttt{chkdsk C: /f}.
 
 \section{Cloner sous Linux, depuis une clé USB}\label{sec:linux}
 
@@ -181,6 +222,10 @@ page~\pageref{fig:4k} : autre boîtier, disque à l'intérieur, ou Linux. \\
 « Accès refusé » & Lancer Calque en administrateur (Windows) ou avec \texttt{sudo} (Linux). \\
 « La relecture a trouvé des blocs différents » & Câble, port ou boîtier USB défaillant, ou disque
 cible abîmé : changer de câble ou de port (de préférence à l'arrière du PC) et recommencer. \\
+« Le nouveau disque s'est déconnecté » & Voir section~\ref{sec:decroche} : refroidir, rebrancher,
+\menu{Reprendre}. \\
+« Zone illisible sur le disque source » & Sauvegarder ses documents, puis \menu{Continuer malgré
+tout}. \\
 Le PC ne démarre pas sur le nouveau disque & Dans le BIOS/UEFI, choisir le nouveau disque (entrée
 « Windows Boot Manager ») comme premier périphérique de démarrage ; vérifier que l'ancien est bien
 débranché. \\

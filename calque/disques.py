@@ -42,6 +42,7 @@ class Disque:
     hors_ligne: bool = False
     lecture_seule: bool = False
     serie: str = ""
+    sante: str = ""             # Windows : Healthy, Warning, Unhealthy…
     volumes: list[Volume] = field(default_factory=list)
 
     def libelle(self) -> str:
@@ -51,6 +52,15 @@ class Disque:
 
     def identite(self) -> tuple:
         return (self.chemin, self.taille, self.modele, self.serie)
+
+    def empreinte(self) -> dict:
+        """Ce qui reconnaît le disque même s'il change de numéro (dock rebranché)."""
+        return {"taille": self.taille, "modele": self.modele, "serie": self.serie,
+                "secteur": self.taille_secteur, "chemin": self.chemin}
+
+    def correspond(self, e: dict) -> bool:
+        return (self.taille == e.get("taille") and self.modele == e.get("modele")
+                and self.serie == e.get("serie") and self.taille_secteur == e.get("secteur"))
 
 
 def octets_lisibles(n: int) -> str:
@@ -91,8 +101,16 @@ SCRIPT_INVENTAIRE = r"""
 $d = @(Get-Disk | Select-Object Number,FriendlyName,SerialNumber,Size,BusType,PartitionStyle,IsBoot,IsSystem,IsOffline,IsReadOnly,LogicalSectorSize,PhysicalSectorSize)
 $p = @(Get-Partition | Select-Object DiskNumber,PartitionNumber,Offset,Size,@{n='Lettre';e={[string]$_.DriveLetter}},AccessPaths)
 $v = @(Get-Volume | Select-Object UniqueId,FileSystem)
-@{disques=$d; partitions=$p; volumes=$v} | ConvertTo-Json -Depth 4 -Compress
+$h = @(); try { $h = @(Get-PhysicalDisk | Select-Object DeviceId,@{n='Sante';e={[string]$_.HealthStatus}}) } catch {}
+@{disques=$d; partitions=$p; volumes=$v; sante=$h} | ConvertTo-Json -Depth 4 -Compress
 """
+
+
+def _sante(v) -> str:
+    """HealthStatus de Get-PhysicalDisk : texte ou nombre selon la version de PowerShell."""
+    if isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
+        return {0: "Healthy", 1: "Warning", 2: "Unhealthy"}.get(int(v), "")
+    return (v or "").strip()
 
 
 def _lettre(v) -> str:
@@ -110,6 +128,7 @@ def analyser_inventaire_windows(texte: str) -> list[Disque]:
         return x if isinstance(x, list) else ([x] if x else [])
 
     fs = {v.get("UniqueId"): (v.get("FileSystem") or "") for v in liste(donnees.get("volumes"))}
+    sante = {str(h.get("DeviceId")): _sante(h.get("Sante")) for h in liste(donnees.get("sante"))}
     disques = []
     for d in liste(donnees.get("disques")):
         bus = d.get("BusType")
@@ -122,7 +141,7 @@ def analyser_inventaire_windows(texte: str) -> list[Disque]:
             secteur_physique=int(d.get("PhysicalSectorSize") or 512), bus=bus,
             systeme=bool(d.get("IsBoot") or d.get("IsSystem")),
             hors_ligne=bool(d.get("IsOffline")), lecture_seule=bool(d.get("IsReadOnly")),
-            serie=(d.get("SerialNumber") or "").strip())
+            serie=(d.get("SerialNumber") or "").strip(), sante=sante.get(str(n), ""))
         for p in liste(donnees.get("partitions")):
             if int(p.get("DiskNumber", -1)) != n:
                 continue
@@ -185,6 +204,15 @@ $s = Get-CimInstance Win32_ShadowCopy | Where-Object {{ $_.ID -eq $r.ShadowID }}
 """, delai=600)
     d = json.loads(sortie)
     return ClicheVSS(d["id"], d["peripherique"])
+
+
+def cliche_existe(ident: str) -> bool:
+    try:
+        sortie = powershell(f"@(Get-CimInstance Win32_ShadowCopy | Where-Object {{ $_.ID -eq '{ident}' }}).Count",
+                            delai=120)
+        return sortie.strip() == "1"
+    except Exception:
+        return False
 
 
 def supprimer_cliche(c: ClicheVSS) -> None:
@@ -286,6 +314,20 @@ def disque_image(chemin: str, taille_secteur: int = 512) -> Disque:
                   taille_secteur=taille_secteur, secteur_physique=taille_secteur, bus="image")
 
 
+def retrouver(empreinte: dict) -> Disque | None:
+    """Le disque qui porte cette empreinte, même sous un autre numéro."""
+    chemin = empreinte.get("chemin", "")
+    if chemin and os.path.isfile(chemin):
+        return disque_image(chemin, empreinte.get("secteur", 512))
+    try:
+        candidats = [d for d in lister() if d.correspond(empreinte)]
+    except Exception:
+        return None
+    if len(candidats) == 1:
+        return candidats[0]
+    return next((d for d in candidats if d.chemin == chemin), None)
+
+
 def preparer_cible(cible: Disque) -> None:
     if sys.platform == "win32" and cible.numero is not None:
         preparer_cible_windows(cible)
@@ -298,32 +340,59 @@ def rafraichir(cible: Disque) -> None:
         subprocess.run(["blockdev", "--rereadpt", cible.chemin], capture_output=True)
 
 
+class Figes:
+    """Lecteurs des partitions de la source, et les clichés qui les portent."""
+
+    def __init__(self):
+        self.lecteurs: dict[int, object] = {}
+        self.cliches: dict[int, ClicheVSS] = {}
+        self.garder = False          # True : clichés conservés pour une reprise
+
+
 @contextmanager
-def lecteurs_figes(source: Disque, dev_source, parts: list[tuple[int, int, int]], journal=None):
+def lecteurs_figes(source: Disque, dev_source, parts: list[tuple[int, int, int]], journal=None,
+                   existants: dict[int, tuple[str, str]] | None = None):
     """Lecteurs des partitions de la source, figés par un cliché quand il le faut.
 
-    `parts` : [(numéro, début octets, taille)]. Rend {numéro: lecteur}. Sous
-    Windows, une partition qui porte un volume monté (C:, D:…) est lue dans un
-    cliché VSS ; les autres (EFI, récupération) directement sur le disque.
-    Les clichés sont TOUJOURS supprimés à la sortie, même en cas d'erreur.
+    `parts` : [(numéro, début octets, taille)]. Sous Windows, une partition qui
+    porte un volume monté (C:, D:…) est lue dans un cliché VSS ; les autres
+    (EFI, récupération) directement sur le disque. `existants` : clichés d'un
+    clonage interrompu, réutilisés tels quels (la reprise doit lire EXACTEMENT
+    le même état du disque). Les clichés sont supprimés à la sortie, sauf si
+    l'appelant a demandé de les garder (`garder`) pour une reprise.
     """
-    lecteurs, cliches, ouverts = {}, [], []
+    f, ouverts = Figes(), []
+    existants = existants or {}
     try:
         for numero, debut, taille in parts:
             vol = next((v for v in source.volumes if v.debut == debut), None)
             if sys.platform == "win32" and vol is not None and source.numero is not None:
-                if journal:
-                    journal("cliche", nom=vol.nom or vol.chemin)
-                c = creer_cliche(vol)
-                cliches.append(c)
+                if numero in existants:
+                    ident, peripherique = existants[numero]
+                    if not cliche_existe(ident):
+                        from .clonage import ErreurClonage
+                        raise ErreurClonage("clone.cliche_perdu")
+                    c = ClicheVSS(ident, peripherique)
+                else:
+                    if journal:
+                        journal("cliche", nom=vol.nom or vol.chemin)
+                    c = creer_cliche(vol)
+                f.cliches[numero] = c
                 dev = ouvrir(c.peripherique, False, source.taille_secteur)
                 ouverts.append(dev)
-                lecteurs[numero] = dev
+                f.lecteurs[numero] = dev
             else:
-                lecteurs[numero] = Fenetre(dev_source, debut, taille)
-        yield lecteurs
+                f.lecteurs[numero] = Fenetre(dev_source, debut, taille)
+        yield f
     finally:
         for d in ouverts:
             d.fermer()
-        for c in cliches:
-            supprimer_cliche(c)
+        if not f.garder:
+            for c in f.cliches.values():
+                supprimer_cliche(c)
+
+
+def supprimer_cliches(idents: list[str]) -> None:
+    if sys.platform == "win32":
+        for i in idents:
+            supprimer_cliche(ClicheVSS(i, ""))

@@ -15,7 +15,12 @@ Cloner un disque — **Windows compris** — sur un disque plus grand, prêt à 
   derrière C:, et l'onglet *Après le clonage* l'y ajoute d'un clic.
 - Refus expliqués des cas qui donnent un clone qui ne démarre pas : boîtier USB qui présente des
   secteurs de 4096 octets, BitLocker actif, disque dynamique, cible trop petite.
-- Le disque source n'est jamais modifié ; une interruption laisse la cible vide, jamais à moitié clonée.
+- **Boîtier USB qui décroche** (il chauffe) : Calque attend son retour et continue seul ; sinon il
+  s'arrête proprement, et **Reprendre** repart là où la copie s'était arrêtée. Copie bridée en option
+  pour le ménager ; veille de Windows bloquée pendant la copie.
+- **Secteurs illisibles** sur la source : avertissement clair, puis « Continuer malgré tout ».
+- Le disque source n'est jamais modifié ; une interruption ne laisse jamais une cible qui pourrait
+  passer pour un clone complet.
 
 ## Télécharger
 
@@ -63,7 +68,12 @@ Clone a disk — **Windows included** — to a larger disk, ready to boot.
   *After cloning* tab adds it in one click.
 - Explained refusals for what makes a clone unbootable: USB enclosure presenting 4096-byte sectors,
   active BitLocker, dynamic disk, target too small.
-- The source disk is never modified; an interruption leaves the target empty, never half-cloned.
+- **USB enclosure dropping out** (it heats up): Calque waits for it and carries on; otherwise it stops
+  cleanly and **Resume** continues where the copy stopped. Optional capped speed to spare it; Windows
+  sleep blocked during the copy.
+- **Unreadable sectors** on the source: clear warning, then “Continue anyway”.
+- The source disk is never modified; an interruption never leaves a target that could pass for a
+  complete clone.
 
 Downloads: see the table above. User guide: [English](docs/manuel-en.pdf).
 

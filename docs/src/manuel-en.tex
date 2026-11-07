@@ -117,8 +117,48 @@ documents and let it work.
 Only the \textbf{used} blocks of C: are copied: a 500~GB disk holding 150~GB copies about 150~GB. Over
 USB 3, allow 5 to 15~minutes per 100~GB, and as much again for the check.
 
-\astuce{\menu{Cancel} stops cleanly: the target is left empty (no partition table) and the source disk
-has not changed. You can start again any time.}
+The plan also states \textbf{how much data will be copied and a time range}. During the copy,
+Calque \textbf{keeps Windows from going to sleep} (sleep would cut the USB link).
+
+\astuce{\menu{Cancel} stops cleanly: what was copied is kept, the target has no partition table yet
+(nothing will boot from it by mistake) and the source disk has not changed. The \menu{Resume} button
+later continues where it stopped.}
+
+\section{If the USB enclosure drops out}\label{sec:decroche}
+
+USB enclosures for NVMe SSDs \textbf{heat up} when tens of GB are written in a row; some then
+disconnect for a few seconds, or for good. This is the main reason a cloning stops halfway. Calque is
+built for it:
+
+\begin{itemize}
+\item \textbf{Go easy on the USB enclosure} (ticked by default when the target is on USB): the copy is
+      capped at 200~MB/s. It takes a little longer, but the enclosure runs much cooler.
+\item \textbf{Short drop-out}: Calque waits for the disk to return (up to 1~min~30), finds it even under
+      a new number, and carries on by itself. The final message says how many times.
+\item \textbf{Permanent drop-out}: Calque stops cleanly and keeps what is done. Follow the message:
+      unplug the enclosure, let it cool for a minute, plug it back in (port at the back of the PC,
+      enclosure lying flat, in the open air), \menu{Refresh the list}, then \menu{Resume}.
+\end{itemize}
+
+\capture{../capture_reprise-en.png}
+
+On Windows, resuming reads \textbf{the same snapshot} as at the start: the clone stays consistent even
+if you worked in between. If the snapshot is gone (PC restarted, disk clean-up), Calque says so and
+you start again from scratch.
+
+\astuce{\textbf{Most reliable of all}: no USB at all. If your motherboard has a single M.2 slot, a PCIe →
+M.2 adapter card (about fifteen euros) in a free PCIe slot lets the new SSD sit inside, next to the old
+one, for the time of the cloning.}
+
+\section{If the source disk has unreadable areas}
+
+An ageing disk can have sectors it no longer manages to read. Calque retries several times, piece by
+piece, then stops and warns you: \textbf{your current disk may be failing}. Start by copying your
+important documents elsewhere.
+
+You can then \menu{Continue anyway}: unreadable sectors are replaced with zeros (everything else is
+copied normally, and the copy resumes where it stopped). The final message gives their number; on the
+first start from the new disk, run \texttt{chkdsk C: /f}.
 
 \section{Cloning on Linux, from a USB stick}\label{sec:linux}
 
@@ -177,6 +217,9 @@ page~\pageref{fig:4k}: another enclosure, the disk inside, or Linux. \\
 “Access denied” & Run Calque as administrator (Windows) or with \texttt{sudo} (Linux). \\
 “Reading back found different blocks” & Faulty USB cable, port or enclosure, or a damaged target disk:
 change cable or port (preferably at the back of the PC) and start again. \\
+“The new disk disconnected” & See section~\ref{sec:decroche}: let it cool, plug it back in,
+\menu{Resume}. \\
+“An area of the source disk cannot be read” & Back up your documents, then \menu{Continue anyway}. \\
 The PC does not start from the new disk & In the BIOS/UEFI, choose the new disk (“Windows Boot Manager”
 entry) as the first boot device; make sure the old one is unplugged. \\
 \bottomrule

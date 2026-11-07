@@ -151,14 +151,14 @@ TEXTES: dict[str, dict[str, str]] = {
     "dlg.non": {"fr": "Non", "en": "No"},
     "fin.titre": {"fr": "Clonage réussi", "en": "Cloning succeeded"},
     "fin.texte": {
-        "fr": "<p>{copie} copiés{verifie} en {duree}.</p>"
+        "fr": "<p>{copie} copiés{verifie} en {duree}.</p>{remarques}"
               "<p><b>Et maintenant :</b></p><ol>"
               "<li>Éteignez l'ordinateur.</li>"
               "<li>Mettez le nouveau disque à la place de l'ancien (ou débranchez l'ancien). "
               "<b>Ne démarrez pas avec les deux branchés</b> : ils portent les mêmes identifiants.</li>"
               "<li>Démarrez ; Windows s'ouvre comme avant.</li>"
               "<li>Relancez Calque, onglet <i>Après le clonage</i> : <b>Agrandir C:</b>.</li></ol>",
-        "en": "<p>{copie} copied{verifie} in {duree}.</p>"
+        "en": "<p>{copie} copied{verifie} in {duree}.</p>{remarques}"
               "<p><b>What next:</b></p><ol>"
               "<li>Shut the computer down.</li>"
               "<li>Put the new disk in place of the old one (or unplug the old one). "
@@ -166,8 +166,10 @@ TEXTES: dict[str, dict[str, str]] = {
               "<li>Start; Windows opens as before.</li>"
               "<li>Run Calque again, <i>After cloning</i> tab: <b>Extend C:</b>.</li></ol>"},
     "fin.verifie": {"fr": " et vérifiés", "en": " and checked"},
-    "fin.annule": {"fr": "Clonage interrompu. Le disque cible est vide (aucune table) : rien ne démarrera dessus par erreur.",
-                   "en": "Cloning stopped. The target disk is empty (no table): nothing will boot from it by mistake."},
+    "fin.annule": {"fr": "Clonage interrompu. Le disque cible n'a pas encore de table : rien ne démarrera dessus par erreur. "
+                         "« Reprendre » continuera là où il s'est arrêté.",
+                   "en": "Cloning stopped. The target disk has no table yet: nothing will boot from it by mistake. "
+                         "“Resume” will continue where it stopped."},
     "fin.echec": {"fr": "Le clonage a échoué.\n\n{detail}\n\nLe disque source n'a pas été modifié.",
                   "en": "Cloning failed.\n\n{detail}\n\nThe source disk was not modified."},
     "admin.requis": {
@@ -177,6 +179,71 @@ TEXTES: dict[str, dict[str, str]] = {
         "fr": "Lancez Calque avec sudo pour accéder aux disques : sudo calque",
         "en": "Run Calque with sudo to access the disks: sudo calque"},
     "inventaire.echec": {"fr": "Impossible de lister les disques :\n{detail}", "en": "Could not list the disks:\n{detail}"},
+    # ---- robustesse : reprise, reconnexion, secteurs illisibles
+    "plan.sante": {"fr": "Windows juge le disque source en mauvais état ({etat}). Sauvegardez vos documents AVANT de cloner.",
+                   "en": "Windows rates the source disk as unhealthy ({etat}). Back up your documents BEFORE cloning."},
+    "plan.estimation": {"fr": "À copier : environ {octets}. Durée estimée : entre {min} et {max}.",
+                        "en": "To copy: about {octets}. Estimated time: between {min} and {max}."},
+    "option.doux": {"fr": "Ménager le boîtier USB : copie bridée à 200 Mo/s (plus lente, mais il chauffe moins et décroche moins)",
+                    "en": "Go easy on the USB enclosure: copy capped at 200 MB/s (slower, but it heats less and drops out less)"},
+    "reprise.titre": {"fr": "Un clonage a été interrompu le {date} ({pourcent} % copiés).",
+                      "en": "A cloning was interrupted on {date} ({pourcent} % copied)."},
+    "reprise.memes": {"fr": "Il reprendra là où il s'était arrêté.", "en": "It will resume where it stopped."},
+    "reprise.autres": {"fr": "Pour le reprendre, choisissez les mêmes disques (rebranchez le nouveau disque, puis « Actualiser la liste »).",
+                       "en": "To resume it, choose the same disks (plug the new disk back in, then “Refresh the list”)."},
+    "reprise.reprendre": {"fr": "Reprendre", "en": "Resume"},
+    "reprise.abandonner": {"fr": "Oublier ce clonage", "en": "Forget this cloning"},
+    "reprise.abandon_confirmer": {"fr": "Oublier le clonage interrompu ? Il faudra tout recommencer.",
+                                  "en": "Forget the interrupted cloning? Everything will have to start again."},
+    "etape.cible_attente": {"fr": "Le nouveau disque a décroché… attente de son retour (jusqu'à 1 min 30)",
+                            "en": "The new disk dropped out… waiting for it to come back (up to 1 min 30)"},
+    "etape.cible_revenue": {"fr": "Le nouveau disque est revenu, la copie continue.", "en": "The new disk is back, copying continues."},
+    "clone.cible_perdue": {
+        "fr": "Le nouveau disque s'est déconnecté et n'est pas revenu.\n\nRien n'est perdu, la copie déjà faite est gardée.\n"
+              "1. Débranchez le boîtier USB, attendez une minute qu'il refroidisse.\n"
+              "2. Rebranchez-le sur un port à l'arrière du PC, posé à plat, à l'air.\n"
+              "3. Cliquez sur « Actualiser la liste », puis sur « Reprendre ».",
+        "en": "The new disk disconnected and did not come back.\n\nNothing is lost, the copy done so far is kept.\n"
+              "1. Unplug the USB enclosure, wait a minute for it to cool down.\n"
+              "2. Plug it back into a port at the back of the PC, lying flat, in the open air.\n"
+              "3. Click “Refresh the list”, then “Resume”."},
+    "clone.cible_erreur": {"fr": "Le nouveau disque refuse l'écriture :\n{detail}", "en": "The new disk refuses writing:\n{detail}"},
+    "clone.source_illisible": {
+        "fr": "Une zone du disque source est illisible (position {position}).\n\nVotre disque actuel est peut-être en train "
+              "de s'abîmer. Commencez par copier vos documents importants ailleurs.\n\nVous pouvez ensuite continuer le "
+              "clonage malgré tout : les zones illisibles seront remplies de zéros (un fichier pourra être abîmé sur le clone).",
+        "en": "An area of the source disk cannot be read (position {position}).\n\nYour current disk may be failing. Start by "
+              "copying your important documents elsewhere.\n\nYou can then continue cloning anyway: unreadable areas will "
+              "be filled with zeros (a file may be damaged on the clone)."},
+    "clone.continuer_malgre": {"fr": "Continuer malgré tout", "en": "Continue anyway"},
+    "clone.arreter": {"fr": "Arrêter", "en": "Stop"},
+    "clone.cliche_perdu": {
+        "fr": "Le cliché de Windows pris au début du clonage n'existe plus (redémarrage, nettoyage du disque). "
+              "La reprise est impossible : il faut recommencer de zéro.",
+        "en": "The Windows snapshot taken when cloning started no longer exists (restart, disk clean-up). "
+              "Resuming is not possible: start again from scratch."},
+    "clone.reprise_impossible": {"fr": "Ce clonage ne peut pas être repris (disques ou contenu différents). Recommencez de zéro.",
+                                 "en": "This cloning cannot be resumed (different disks or content). Start again from scratch."},
+    "fin.illisibles": {"fr": "<p style='color:#A33'><b>{n} secteur(s) illisible(s)</b> ont été remplacés par des zéros. "
+                             "Faites vérifier le disque (chkdsk C: /f au premier démarrage).</p>",
+                       "en": "<p style='color:#A33'><b>{n} unreadable sector(s)</b> were replaced with zeros. "
+                             "Have the disk checked (chkdsk C: /f on first start).</p>"},
+    "fin.reconnexions": {"fr": "<p>Le boîtier USB a décroché {n} fois ; Calque a repris tout seul.</p>",
+                         "en": "<p>The USB enclosure dropped out {n} time(s); Calque carried on by itself.</p>"},
+    "fin.reprise": {"fr": "Clonage interrompu. Ce qui est copié est gardé : « Reprendre » continuera là où il s'est arrêté.",
+                    "en": "Cloning stopped. What was copied is kept: “Resume” will continue where it stopped."},
+    "dlg.avant": {
+        "fr": "<p><b>Avant de lancer :</b></p><ul>"
+              "<li>vos documents importants sont sauvegardés ailleurs ;</li>"
+              "<li>portable : branché sur le secteur ;</li>"
+              "<li>boîtier USB : posé à plat, à l'air, sur un port à l'arrière du PC.</li></ul>"
+              "<p>La mise en veille de Windows est bloquée pendant la copie.</p>",
+        "en": "<p><b>Before starting:</b></p><ul>"
+              "<li>your important documents are backed up elsewhere;</li>"
+              "<li>laptop: plugged into the mains;</li>"
+              "<li>USB enclosure: lying flat, in the open air, on a port at the back of the PC.</li></ul>"
+              "<p>Windows sleep is blocked during the copy.</p>"},
+    "dlg.reprendre_maintenant": {"fr": "J'ai rebranché : reprendre", "en": "Plugged back in: resume"},
     # ---- après le clonage
     "apres.intro": {
         "fr": "<p>À faire <b>une fois démarré sur le nouveau disque</b>.</p>"
@@ -371,7 +438,10 @@ def message(erreur) -> str:
     return f"{type(erreur).__name__}: {erreur}"
 
 
-def duree(secondes: float) -> str:
+def duree(secondes: float, approx: bool = False) -> str:
+    if approx:                      # estimation : arrondie à 5 minutes
+        m = max(5, int(round(secondes / 300.0)) * 5)
+        return f"{m // 60} h {m % 60:02d}" if m >= 60 else f"{m} min"
     s = int(secondes)
     if s >= 3600:
         return f"{s // 3600} h {s % 3600 // 60:02d}"

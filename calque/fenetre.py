@@ -96,7 +96,7 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
     def __init__(self, images: list[str] | None = None):
         super().__init__()
         self.setWindowTitle(f"Calque {__version__}")
-        self.resize(940, 800)
+        self.resize(960, 880)
         self.reglages = QtCore.QSettings("ARP273-ROSE", "Calque")
         self.images = images or []
         self.disques: list[D.Disque] = []
@@ -149,6 +149,23 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
         f.setColumnStretch(1, 1)
         lo.addWidget(g1)
 
+        # bandeau : clonage interrompu à reprendre
+        self.bandeau = QtWidgets.QFrame()
+        self.bandeau.setObjectName("bandeau")
+        lb = QtWidgets.QHBoxLayout(self.bandeau)
+        self.texte_bandeau = QtWidgets.QLabel()
+        self.texte_bandeau.setWordWrap(True)
+        lb.addWidget(self.texte_bandeau, 1)
+        self.bouton_reprendre = QtWidgets.QPushButton(tr("reprise.reprendre"))
+        self.bouton_reprendre.setObjectName("principal")
+        self.bouton_reprendre.clicked.connect(self._reprendre)
+        self.bouton_oublier = QtWidgets.QPushButton(tr("reprise.abandonner"))
+        self.bouton_oublier.clicked.connect(self._oublier_reprise)
+        lb.addWidget(self.bouton_reprendre)
+        lb.addWidget(self.bouton_oublier)
+        self.bandeau.hide()
+        lo.addWidget(self.bandeau)
+
         g2 = QtWidgets.QGroupBox(tr("zone.plan"))
         l2 = QtWidgets.QVBoxLayout(g2)
         self.barres = Barres()
@@ -172,9 +189,12 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
         self.option_deplacer.toggled.connect(self._recalculer)
         self.option_verifier = QtWidgets.QCheckBox(tr("option.verifier"))
         self.option_verifier.setChecked(True)
+        self.option_verifier.toggled.connect(self._majeur_texte_plan)
+        self.option_doux = QtWidgets.QCheckBox(tr("option.doux"))
+        self.option_doux.toggled.connect(self._majeur_texte_plan)
         self.confirmation = QtWidgets.QCheckBox()
         self.confirmation.toggled.connect(self._majeur_bouton)
-        for x in (self.option_deplacer, self.option_verifier, self.confirmation):
+        for x in (self.option_deplacer, self.option_verifier, self.option_doux, self.confirmation):
             l3.addWidget(x)
         ligne = QtWidgets.QHBoxLayout()
         self.barre = QtWidgets.QProgressBar()
@@ -276,6 +296,9 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
         if erreur is not None and not liste:
             QtWidgets.QMessageBox.warning(self, "Calque", tr("inventaire.echec", detail=message(erreur)))
         self.charger_disques(liste)
+        suite, self._apres_inventaire = getattr(self, "_apres_inventaire", None), None
+        if suite:
+            suite()
 
     def charger_disques(self, liste: list[D.Disque]):
         ancienne_s = self.choix_source.currentData()
@@ -337,10 +360,59 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
             self.texte_plan.setText(f"<p style='color:#A33'><b>{tr('plan.bloque')}</b> {_html(message(e))}</p>")
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
+        usb = cible.bus.upper() == "USB"
+        self.option_doux.setVisible(usb)
+        self.option_doux.setChecked(usb)
         if self.plan:
             self.barres.montrer(self.plan)
-            self.texte_plan.setText(self._texte_plan(self.plan))
+        self._majeur_texte_plan()
+        self._majeur_bandeau()
         self._majeur_bouton()
+
+    DEBIT_DOUX = 200e6
+
+    def _debit_max(self):
+        return self.DEBIT_DOUX if self.option_doux.isVisible() and self.option_doux.isChecked() else None
+
+    def _majeur_texte_plan(self, *_):
+        if self.plan:
+            self.texte_plan.setText(self._texte_plan(self.plan))
+
+    def _majeur_bandeau(self):
+        """Clonage interrompu : bouton Reprendre si ce sont les mêmes disques."""
+        if self.en_cours:
+            self.bandeau.hide()
+            return
+        d = clonage.Journal().charger()
+        if not d:
+            self.bandeau.hide()
+            return
+        total = d.get("total") or 1
+        fait = 0
+        try:
+            fait = min(100, int(100 * int(d.get("blocs_faits", 0)) * clonage.BLOC / total))
+        except Exception:
+            pass
+        memes = bool(self.plan and clonage.reprise_possible(self.plan))
+        self.texte_bandeau.setText(tr("reprise.titre", date=d.get("date", "?"), pourcent=fait) + " "
+                                   + tr("reprise.memes" if memes else "reprise.autres"))
+        self.bouton_reprendre.setVisible(memes)
+        self.bandeau.show()
+
+    def _reprendre(self):
+        if self.plan and clonage.reprise_possible(self.plan):
+            self._lancer(self.plan, self.option_verifier.isChecked(), reprendre=True)
+
+    def _oublier_reprise(self):
+        r = QtWidgets.QMessageBox.question(self, "Calque", tr("reprise.abandon_confirmer"))
+        if r != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+        QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            clonage.abandonner_reprise()
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        self._majeur_bandeau()
 
     def _texte_plan(self, plan: clonage.Plan) -> str:
         ss = plan.table_source.taille_secteur
@@ -361,6 +433,10 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
                 morceaux.append("<p>" + _html(tr("plan.deplacees", gain=gain, nom=nom)) + "</p>")
             elif plan.espace_gagne() > 0:
                 morceaux.append("<p>" + _html(tr("plan.gain", gain=gain, nom=nom)) + "</p>")
+            if plan.estimation:
+                bas, haut = plan.duree_estimee(self.option_verifier.isChecked(), self._debit_max())
+                morceaux.append("<p><b>" + _html(tr("plan.estimation", octets=D.octets_lisibles(plan.estimation),
+                                                     min=duree(bas, True), max=duree(haut * 1.0001 + 300, True))) + "</b></p>")
         if plan.avertissements:
             morceaux.append(f"<p><b>{tr('plan.attention')}</b></p><ul>" + "".join(
                 f"<li>{_html(tr(c, **k))}</li>" for c, k in plan.avertissements) + "</ul>")
@@ -386,6 +462,7 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
         boite.setWindowTitle(tr("dlg.confirmer_titre"))
         boite.setIcon(QtWidgets.QMessageBox.Icon.Warning)
         boite.setText(tr("dlg.confirmer", source=_html(plan.source.libelle()), cible=_html(plan.cible.libelle())))
+        boite.setInformativeText(tr("dlg.avant"))
         oui = boite.addButton(tr("dlg.effacer"), QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
         non = boite.addButton(tr("bouton.annuler"), QtWidgets.QMessageBox.ButtonRole.RejectRole)
         boite.setDefaultButton(non)
@@ -394,11 +471,14 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
             return
         self._lancer(plan, self.option_verifier.isChecked())
 
-    def _lancer(self, plan, verifier: bool):
+    def _lancer(self, plan, verifier: bool, reprendre: bool = False, tolerer: bool = False):
         self.en_cours = True
         self._annulation.clear()
+        self.bandeau.hide()
+        self._dernier = (plan, verifier)
+        debit_max = self._debit_max()
         for w in (self.choix_source, self.choix_cible, self.bouton_actualiser, self.option_deplacer,
-                  self.option_verifier, self.confirmation):
+                  self.option_verifier, self.option_doux, self.confirmation):
             w.setEnabled(False)
         self.bouton.setText(tr("bouton.annuler"))
         self.barre.setValue(0)
@@ -407,7 +487,8 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
             try:
                 bilan = clonage.cloner(plan, rappel=lambda **k: self._progres.emit(k),
                                        annulation=self._annulation, verifier=verifier,
-                                       journal=lambda cle, **k: self._journal.emit(cle, k))
+                                       journal=lambda cle, **k: self._journal.emit(cle, k),
+                                       reprendre=reprendre, tolerer_illisibles=tolerer, debit_max=debit_max)
                 self._fin.emit(bilan, None)
             except BaseException as e:  # noqa: BLE001
                 self._fin.emit(None, e)
@@ -431,25 +512,55 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
     def _clonage_fini(self, bilan, erreur):
         self.en_cours = False
         for w in (self.choix_source, self.choix_cible, self.bouton_actualiser, self.option_deplacer,
-                  self.option_verifier):
+                  self.option_verifier, self.option_doux):
             w.setEnabled(True)
         self.bouton.setText(tr("bouton.cloner"))
         self.confirmation.setChecked(False)
         self._majeur_bouton()
+        self._majeur_bandeau()
         if erreur is None:
             self.barre.setValue(1000)
             self.etat.setText(tr("etape.fini"))
             verifie = tr("fin.verifie") if bilan.octets_verifies else ""
+            remarques = ""
+            if bilan.secteurs_illisibles:
+                remarques += tr("fin.illisibles", n=bilan.secteurs_illisibles)
+            if bilan.reconnexions:
+                remarques += tr("fin.reconnexions", n=bilan.reconnexions)
             QtWidgets.QMessageBox.information(self, tr("fin.titre"), tr(
-                "fin.texte", copie=D.octets_lisibles(bilan.octets_copies), verifie=verifie, duree=duree(bilan.duree)))
+                "fin.texte", copie=D.octets_lisibles(bilan.repris_a + bilan.octets_copies), verifie=verifie,
+                duree=duree(bilan.duree), remarques=remarques))
             return
-        self.barre.setValue(0)
         if isinstance(erreur, clonage.Annule):
             self.etat.setText(tr("fin.annule"))
             QtWidgets.QMessageBox.information(self, "Calque", tr("fin.annule"))
             return
+        cle = getattr(erreur, "cle", "")
         self.etat.setText(tr("fin.echec", detail=message(erreur)).splitlines()[0])
-        if not getattr(erreur, "cle", None):
+        if cle == "clone.source_illisible":
+            boite = QtWidgets.QMessageBox(self)
+            boite.setWindowTitle("Calque")
+            boite.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            boite.setText(message(erreur))
+            continuer = boite.addButton(tr("clone.continuer_malgre"), QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+            boite.addButton(tr("clone.arreter"), QtWidgets.QMessageBox.ButtonRole.RejectRole)
+            boite.exec()
+            if boite.clickedButton() is continuer and self.plan:
+                self._lancer(self.plan, self._dernier[1], reprendre=True, tolerer=True)
+            return
+        if cle == "clone.cible_perdue":
+            boite = QtWidgets.QMessageBox(self)
+            boite.setWindowTitle("Calque")
+            boite.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            boite.setText(message(erreur))
+            reprendre = boite.addButton(tr("dlg.reprendre_maintenant"), QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+            boite.addButton(tr("clone.arreter"), QtWidgets.QMessageBox.ButtonRole.RejectRole)
+            boite.exec()
+            if boite.clickedButton() is reprendre:
+                self._apres_inventaire = self._reprendre
+                self.actualiser()
+            return
+        if not cle:
             try:
                 import traceback
 
@@ -457,6 +568,9 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
                 reporting.signaler_plantage("".join(traceback.format_exception(type(erreur), erreur, erreur.__traceback__)))
             except Exception:
                 pass
+        if cle in ("clone.cliche_perdu", "clone.reprise_impossible"):
+            clonage.abandonner_reprise()
+            self._majeur_bandeau()
         QtWidgets.QMessageBox.critical(self, "Calque", tr("fin.echec", detail=message(erreur)))
 
     # ------------------------------------------------------------ après

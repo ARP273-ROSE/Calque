@@ -94,6 +94,7 @@ QToolTip {{ background: #FBFCFD; color: {ENCRE}; border: 1px solid {BORD}; paddi
 QLabel#titre {{ font-family: "{{TITRE}}"; font-size: 22pt; color: {BLEU}; }}
 QLabel#sous_titre {{ color: {GRIS}; }}
 QLabel#resume {{ color: {ENCRE}; padding: 2px 4px; }}
+QFrame#bandeau {{ background: #FBF1E2; border: 1px solid {OCRE}; border-radius: 8px; padding: 4px; }}
 
 QListWidget {{
     background: {CARTE}; alternate-background-color: {LIGNE};
