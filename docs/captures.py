@@ -89,6 +89,8 @@ def main():
             attendre(app, lambda: w.plan is not None)
             # disque fictif sans vrai NTFS : on montre l'estimation d'un C: rempli à 148 Go
             w.plan.estimation = 148 * GO
+            # captures de la partie Windows : l'alerte propre à Linux n'y a pas sa place
+            w.plan.avertissements = [a for a in w.plan.avertissements if a[0] != "plan.demarrage_rapide"]
             w._majeur_texte_plan()
             app.processEvents()
             w.grab().save(str(ICI / f"capture_plan-{lg}.png"))

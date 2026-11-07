@@ -79,6 +79,37 @@ le PC : la table de partitions n'est plus lue au bon endroit. C'est une cause fr
 l'expliquant (figure~\ref{fig:4k}). Solution : un autre boîtier, le disque branché à l'intérieur, ou le
 clonage sous Linux (section~\ref{sec:linux}).}
 
+\section{Les alertes et les moments sans retour}\label{sec:alertes}
+
+Calque classe ce qu'il voit en trois niveaux, dans le cadre « Ce qui va se passer » :
+
+\begin{center}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\linewidth}{>{\bfseries}p{0.2\linewidth} >{\raggedright\arraybackslash}X}
+\toprule
+\color{rouge}IMPOSSIBLE & le clone ne marcherait pas : le bouton \menu{Cloner} reste grisé (secteurs de 4096
+octets, BitLocker, cible trop petite, place insuffisante pour le cliché, disque dynamique). \\
+\color{or!85!black}ATTENTION & à lire avant de continuer : la cible n'est pas vide, portable sur batterie,
+peu de place sur C:, disque source en mauvaise santé, Windows pas complètement éteint (Linux). \\
+À SAVOIR & information utile : boîtier USB, cible en lecture seule… \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\attention{\textbf{Les seuls moments sans retour :}
+\begin{enumerate}[leftmargin=5mm]
+\item \textbf{« Effacer et cloner »} : le contenu actuel du disque \emph{cible} est perdu. Le disque source,
+      lui, n'est jamais touché.
+\item \textbf{Effacer ou formater l'ancien disque} après le clonage : ne le faites qu'après plusieurs jours
+      d'utilisation normale du nouveau. D'ici là, rangez-le : c'est votre copie de secours.
+\item \textbf{« Oublier ce clonage »} : la copie interrompue devra être refaite depuis le début (rien
+      d'autre n'est perdu).
+\end{enumerate}}
+
+Pendant la copie : ne débranchez rien, laissez un portable sur secteur, et suspendez Windows Update
+(\menu{Paramètres → Windows Update → Suspendre}) : un redémarrage automatique interromprait la copie (elle
+pourrait être reprise, mais autant l'éviter). Calque bloque la mise en veille.
+
 \section{Installer et lancer Calque}
 
 \subsection*{Windows}

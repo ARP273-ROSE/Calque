@@ -134,8 +134,9 @@ def test_clonage_a_chaud_vers_vhdx(vhd):
     assert parts[-1]["GptType"].strip("{}").lower() == TYPE_RECUP
     assert parts[-1]["Offset"] + parts[-1]["Size"] > 6000 * MIO          # récupération en fin de disque
     num_c = next(p["PartitionNumber"] for p in parts if p["Size"] == 2200 * MIO)
-    lettre = ps(f"Add-PartitionAccessPath -DiskNumber {n_cib} -PartitionNumber {num_c} -AssignDriveLetter; "
-                f"(Get-Partition -DiskNumber {n_cib} -PartitionNumber {num_c}).DriveLetter").strip()
+    lettre = ps(f"$p = Get-Partition -DiskNumber {n_cib} -PartitionNumber {num_c}; "
+                f"if (-not $p.DriveLetter -or $p.DriveLetter -eq [char]0) {{ $p | Add-PartitionAccessPath -AssignDriveLetter }}; "
+                f"[string](Get-Partition -DiskNumber {n_cib} -PartitionNumber {num_c}).DriveLetter").strip()
     assert lettre
     for nom, empreinte in temoins.items():
         assert hashlib.sha256((Path(f"{lettre}:/") / nom).read_bytes()).hexdigest() == empreinte, nom

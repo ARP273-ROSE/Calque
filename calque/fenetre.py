@@ -419,13 +419,19 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
         self._majeur_bandeau()
 
     def _texte_plan(self, plan: clonage.Plan) -> str:
+        """Le plan en clair : d'abord ce qui empêche ou ce qu'il faut savoir
+        AVANT (en couleur, en tête, toujours visible), puis ce qui va se passer."""
         ss = plan.table_source.taille_secteur
         morceaux = []
-        if plan.bloquants:
-            morceaux.append("".join(
-                f"<p style='background:#F8E6E3; color:#A33A2E; padding:4px'><b>{tr('niveau.bloque')}</b> — "
-                f"{_html(tr(c, **k))}</p>" for c, k in plan.bloquants))
-        else:
+        morceaux.extend(
+            f"<p style='background:#F8E6E3; color:#A33A2E; padding:4px'><b>{tr('niveau.bloque')}</b> — "
+            f"{_html(tr(c, **k))}</p>" for c, k in plan.bloquants)
+        importants = [(c, k) for c, k in plan.avertissements if c in IMPORTANTS]
+        infos = [(c, k) for c, k in plan.avertissements if c not in IMPORTANTS]
+        morceaux.extend(
+            f"<p style='background:#FBF1E2; color:#7A4A0C; padding:4px'><b>{tr('niveau.important')}</b> — "
+            f"{_html(tr(c, **k))}</p>" for c, k in importants)
+        if not plan.bloquants:
             morceaux.append("<p>" + _html(tr("plan.resume", n=len(plan.travaux), style=plan.table_source.style.upper(),
                                               cible=plan.cible.libelle())) + "</p>")
             principale = clonage.T.partition_principale(plan.table_source)
@@ -441,13 +447,8 @@ class FenetrePrincipale(QtWidgets.QMainWindow):
             if plan.estimation:
                 bas, haut = plan.duree_estimee(self.option_verifier.isChecked(), self._debit_max())
                 morceaux.append("<p><b>" + _html(tr("plan.estimation", octets=D.octets_lisibles(plan.estimation),
-                                                     min=duree(bas, True), max=duree(haut * 1.0001 + 300, True))) + "</b></p>")
-        importants = [(c, k) for c, k in plan.avertissements if c in IMPORTANTS]
-        infos = [(c, k) for c, k in plan.avertissements if c not in IMPORTANTS]
-        if importants:
-            morceaux.append("".join(
-                f"<p style='background:#FBF1E2; color:#7A4A0C; padding:4px'><b>{tr('niveau.important')}</b> — "
-                f"{_html(tr(c, **k))}</p>" for c, k in importants))
+                                                     min=duree(bas, True), max=duree(haut * 1.0001 + 300, True)))
+                                + "</b></p>")
         if infos:
             morceaux.append(f"<p><b>{tr('niveau.info')}</b></p><ul>" + "".join(
                 f"<li>{_html(tr(c, **k))}</li>" for c, k in infos) + "</ul>")

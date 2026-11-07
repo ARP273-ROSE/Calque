@@ -77,6 +77,37 @@ read at the right place. This is a common cause of “successful” clones that 
 the two disks and \textbf{refuses} in that case, with an explanation (figure~\ref{fig:4k}). Fix: another
 enclosure, the disk connected inside, or cloning on Linux (section~\ref{sec:linux}).}
 
+\section{Alerts and points of no return}\label{sec:alertes}
+
+Calque sorts what it sees into three levels, in the “What will happen” frame:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\linewidth}{>{\bfseries}p{0.22\linewidth} >{\raggedright\arraybackslash}X}
+\toprule
+\color{rouge}NOT POSSIBLE & the clone would not work: the \menu{Clone} button stays greyed out (4096-byte
+sectors, BitLocker, target too small, not enough space for the snapshot, dynamic disk). \\
+\color{or!85!black}WARNING & read before going on: the target is not empty, laptop on battery, little space
+on C:, source disk in poor health, Windows not fully shut down (Linux). \\
+GOOD TO KNOW & useful information: USB enclosure, read-only target… \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\attention{\textbf{The only points of no return:}
+\begin{enumerate}[leftmargin=5mm]
+\item \textbf{“Erase and clone”}: the current content of the \emph{target} disk is lost. The source disk is
+      never touched.
+\item \textbf{Erasing or formatting the old disk} after cloning: only do it after several days of normal use
+      of the new one. Until then, put it away: it is your safety copy.
+\item \textbf{“Forget this cloning”}: the interrupted copy will have to start again from the beginning
+      (nothing else is lost).
+\end{enumerate}}
+
+During the copy: do not unplug anything, keep a laptop on the mains, and pause Windows Update
+(\menu{Settings → Windows Update → Pause}): an automatic restart would interrupt the copy (it could be
+resumed, but better avoid it). Calque blocks sleep.
+
 \section{Installing and starting Calque}
 
 \subsection*{Windows}
