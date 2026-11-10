@@ -110,7 +110,10 @@ def preparer_plan(source: D.Disque, cible: D.Disque, deplacer_fin: bool = True,
         estimation = 0
         for p in ts.triees():
             premier = dev.lire(p.debut * ts.taille_secteur, 512)
-            t = Travail(p, p.debut, ntfs.nature(premier), False)
+            fs = ntfs.nature(premier)
+            if fs == "inconnu" and p.nature == "msr":
+                fs = "-"                     # la partition réservée de Microsoft n'a pas de système de fichiers
+            t = Travail(p, p.debut, fs, False)
             travaux.append(t)
             if t.systeme_fichiers == "ntfs":
                 try:
@@ -165,9 +168,11 @@ def preparer_plan(source: D.Disque, cible: D.Disque, deplacer_fin: bool = True,
     if _sys.platform == "win32" and source.numero is not None:
         for v in source.volumes:
             if v.nom and v.libre is not None and (v.systeme_fichiers or "").upper() == "NTFS":
-                if v.libre < 1_000_000_000:
+                # seuils relatifs à la taille du volume : un petit volume presque
+                # vide n'a pas besoin de 5 Go de libre pour son cliché
+                if v.libre < min(1_000_000_000, v.taille // 10):
                     bloquants.append(("plan.place_cliche_bloque", {"nom": v.nom, "libre": D.octets_lisibles(v.libre)}))
-                elif v.libre < 5_000_000_000:
+                elif v.libre < min(5_000_000_000, v.taille // 5):
                     avert.append(("plan.place_cliche", {"nom": v.nom, "libre": D.octets_lisibles(v.libre)}))
     elif any(t.systeme_fichiers == "ntfs" for t in travaux):
         avert.append(("plan.demarrage_rapide", {}))

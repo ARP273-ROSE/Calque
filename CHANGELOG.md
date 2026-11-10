@@ -1,5 +1,16 @@
 # Journal des versions / Changelog
 
+### 0.1.1
+
+**Français**
+- Avertissement de place pour le cliché proportionné à la taille du volume (plus de fausse alerte sur un
+  petit volume presque vide).
+- La partition réservée de Microsoft (MSR) n'est plus affichée « inconnu ».
+
+**English**
+- Snapshot free-space warning scaled to the volume size (no more false alarm on a small, nearly empty volume).
+- The Microsoft reserved partition (MSR) is no longer shown as "unknown".
+
 ### 0.1.0
 
 **Français**
