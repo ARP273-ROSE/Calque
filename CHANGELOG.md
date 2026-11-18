@@ -1,5 +1,17 @@
 # Journal des versions / Changelog
 
+### 0.1.2
+
+**Français**
+- Mises à jour signées : Calque n'installe plus une mise à jour que si son archive figure dans un manifeste
+  signé par la clé de l'éditeur (Ed25519, hors de GitHub) ; un accès GitHub volé ne peut plus pousser de
+  code sur les postes. L'adresse atteinte après les redirections est vérifiée elle aussi.
+
+**English**
+- Signed updates: Calque installs an update only if its archive is listed in a manifest signed by the
+  publisher's key (Ed25519, kept off GitHub); a stolen GitHub access can no longer push code to installed
+  copies. The address reached after redirects is checked as well.
+
 ### 0.1.1
 
 **Français**

@@ -95,6 +95,7 @@ jobs:
       version: ${{ steps.choix.outputs.version }}
       ref: ${{ steps.choix.outputs.ref }}
       depot: ${{ steps.choix.outputs.depot }}
+      matrice: ${{ steps.systemes.outputs.matrice }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -151,6 +152,26 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "A construire : $V ($DEPOT @ $REF)"
+      # Paquets macOS/Linux a construire : kit.json « systemes_unix »
+      # (« macos-arm64 », « macos-x86_64 », « linux-x86_64 », « linux-arm64 »),
+      # tous par defaut. Une application propre a Linux n'a rien a faire d'un .dmg.
+      - id: systemes
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          tous = [
+              {"os": "macos-latest", "plateforme": "macos", "arch": "arm64"},
+              {"os": "macos-15-intel", "plateforme": "macos", "arch": "x86_64"},
+              {"os": "ubuntu-latest", "plateforme": "linux", "arch": "x86_64"},
+              {"os": "ubuntu-24.04-arm", "plateforme": "linux", "arch": "arm64"},
+          ]
+          voulus = json.load(open('kit.json', encoding='utf-8')).get('systemes_unix') or []
+          choisis = [s for s in tous if not voulus or f"{s['plateforme']}-{s['arch']}" in voulus]
+          if not choisis:
+              raise SystemExit("kit.json systemes_unix : aucun systeme reconnu")
+          print("matrice=" + json.dumps({"include": choisis}))
+          PY
 
   # Les essais du depot (kit.json « tests_ci » : cibles pytest), sous Linux,
   # interface comprise (Xvfb). Un echec arrete la publication. Sans la cle, le
@@ -189,7 +210,7 @@ jobs:
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-cursor0 \
             libxcb-xkb1 libpulse0 libasound2t64 \
             libnss3 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libxkbfile1 libxshmfence1 libgbm1 libminizip1
-          pip install -q pytest -r "${{ steps.kit.outputs.requirements }}"
+          pip install -q pytest cryptography -r "${{ steps.kit.outputs.requirements }}"
       - name: Essais
         if: steps.kit.outputs.cibles != ''
         env:
@@ -473,22 +494,10 @@ jobs:
     if: needs.decider.outputs.construire == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # macos-latest est un Mac Apple Silicon : n'y construire qu'un seul
-          # paquet livrerait un .dmg arm64 qu'un Mac Intel ne peut pas ouvrir.
-          - os: macos-latest
-            plateforme: macos
-            arch: arm64
-          - os: macos-15-intel
-            plateforme: macos
-            arch: x86_64
-          - os: ubuntu-latest
-            plateforme: linux
-            arch: x86_64
-          - os: ubuntu-24.04-arm
-            plateforme: linux
-            arch: arm64
+      # macos-latest est un Mac Apple Silicon : n'y construire qu'un seul
+      # paquet livrerait un .dmg arm64 qu'un Mac Intel ne peut pas ouvrir.
+      # La liste vient de « decider » (kit.json « systemes_unix »).
+      matrix: ${{ fromJSON(needs.decider.outputs.matrice) }}
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -698,6 +707,45 @@ jobs:
           (cd publication && sha256sum * > SHA256SUMS && cat SHA256SUMS)
           ls -lh publication
 
+      # Signature des archives de mise a jour (gabarits/signature_maj.py). Le
+      # manifeste donne la version et le SHA-256 de chaque archive .zip ; il
+      # est signe par la cle Ed25519 du secret MAJ_CLE_SIGNATURE (cle du kit,
+      # la meme pour toutes les applications). Une application dont kit.json
+      # porte « cle_publique_maj » refuse toute archive absente d'un manifeste
+      # signe : sans le secret, la publication s'arrete ici plutot que de
+      # publier une version que personne ne pourrait installer.
+      - name: Signer les archives de mise a jour
+        shell: bash
+        env:
+          MAJ_CLE_SIGNATURE: ${{ secrets.MAJ_CLE_SIGNATURE }}
+        run: |
+          CLE_PUB=$(python -c "import json;print(json.load(open('kit.json', encoding='utf-8')).get('cle_publique_maj',''))")
+          if [ -z "$CLE_PUB" ]; then echo "pas de cle publique declaree : pas de signature"; exit 0; fi
+          if [ -z "$MAJ_CLE_SIGNATURE" ]; then echo "::error::secret MAJ_CLE_SIGNATURE absent"; exit 1; fi
+          python -m pip install --quiet cryptography
+          V="${{ steps.version.outputs.value }}" NT="${{ steps.kit.outputs.nom_technique }}" DOSSIER="publication" python - <<'PY'
+          import base64, glob, hashlib, json, os
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          from cryptography.hazmat.primitives import serialization as ser
+          V, NT, D = os.environ['V'], os.environ['NT'], os.environ['DOSSIER']
+          fichiers = {}
+          for chemin in sorted(glob.glob(os.path.join(D, '*.zip'))):
+              with open(chemin, 'rb') as f:
+                  fichiers[os.path.basename(chemin)] = hashlib.sha256(f.read()).hexdigest()
+          if not fichiers:
+              raise SystemExit('aucune archive de mise a jour a signer')
+          cle = Ed25519PrivateKey.from_private_bytes(base64.b64decode(os.environ['MAJ_CLE_SIGNATURE'].strip()))
+          pub = base64.b64encode(cle.public_key().public_bytes(ser.Encoding.Raw, ser.PublicFormat.Raw)).decode()
+          if pub != json.load(open('kit.json', encoding='utf-8'))['cle_publique_maj']:
+              raise SystemExit('le secret ne correspond pas a la cle publique de kit.json')
+          texte = json.dumps({'version': V, 'fichiers': fichiers}, sort_keys=True)
+          signature = base64.b64encode(cle.sign(texte.encode('utf-8'))).decode()
+          sortie = os.path.join(D, f'{NT}-signature-{V}.json')
+          with open(sortie, 'w', encoding='utf-8') as f:
+              json.dump({'manifeste': texte, 'signature': signature}, f)
+          print('signe :', ', '.join(fichiers), '->', sortie)
+          PY
+
       # Notes de la Release : une section par langue (« ## English »,
       # « ## Francais ») ; l'application n'affiche que celle de son interface
       # (updater.notes_dans_la_langue). kit.json « langue_principale » met sa
@@ -722,6 +770,8 @@ jobs:
               ('Linux x86_64', f'{nom}-{V}-linux-x86_64.tar.gz'),
               ('Linux ARM64', f'{nom}-{V}-linux-arm64.tar.gz'),
           ]
+          # seulement les systemes effectivement construits (« systemes_unix »)
+          fichiers = [(s, f) for s, f in fichiers if os.path.exists(os.path.join('publication', f))]
           # paquets Debian/Ubuntu (kit.json « paquet_deb ») : noms stables
           for deb in sorted(os.listdir('publication')):
               if deb.endswith('.deb') and '-linux-' in deb:
@@ -829,8 +879,11 @@ jobs:
               if nouveau:
                   morceaux.append(f'{entete}\n\n{nouveau}\n')
               # le gabarit est indente dans ce fichier : on retire l'indentation
-              morceaux.append('\n'.join(l[10:] if l.startswith(' ' * 10) else l
-                                        for l in corps.splitlines()).strip() + '\n')
+              corps = '\n'.join(l[10:] if l.startswith(' ' * 10) else l for l in corps.splitlines())
+              if not any(f.endswith('.dmg') for _, f in fichiers):
+                  # pas de paquet macOS (« systemes_unix ») : pas de mode d'emploi macOS
+                  corps = re.sub(r'\n\*\*macOS\*\*.*?(?=\n\n)', '', corps, flags=re.S)
+              morceaux.append(corps.strip() + '\n')
           open('notes.md', 'w', encoding='utf-8').write('\n'.join(morceaux))
           PY
           cat notes.md
