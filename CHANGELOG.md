@@ -1,5 +1,13 @@
 # Journal des versions / Changelog
 
+### 0.1.3
+
+**Français**
+- Sécurité : Python embarqué 3.14.10 (la 3.12.10 ne recevait plus de correctifs de sécurité sous Windows) ; l'interpréteur téléchargé à la construction est vérifié par son empreinte SHA-256. Rapports d'incident : plus de faux avertissement « vigie sans battement » au démarrage.
+
+**English**
+- Security: bundled Python 3.14.10 (3.12.10 no longer received security fixes on Windows); the interpreter downloaded at build time is checked against its SHA-256. Incident reports: no more false “watchdog without heartbeat” warning at start-up.
+
 ### 0.1.2
 
 **Français**
